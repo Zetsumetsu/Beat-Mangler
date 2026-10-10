@@ -49,10 +49,14 @@ bool BeatManglerProcessor::loadAudioFile(const juce::File& file) {
 }
 
 void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
-                                        juce::MidiBuffer&) {
+                                        juce::MidiBuffer& midiMessages) {
     juce::ScopedNoDenormals noDenormals;
     const int numSamples = buffer.getNumSamples();
     buffer.clear();
+
+    // MIDI input exists so hosts accept us as an instrument; v0.1 runs on
+    // its internal transport and ignores incoming MIDI for now.
+    (void)midiMessages;
 
     if (!playing.load() || engine_.numSlices() == 0)
         return;
