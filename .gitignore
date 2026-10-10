@@ -16,3 +16,4 @@ build/
 # Local test artifacts (binaries + listening renders stay local)
 dsp/test_dsp
 dsp/renders/
+vst/build/
