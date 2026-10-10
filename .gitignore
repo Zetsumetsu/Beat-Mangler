@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Delivery bundles stay out of the repo (every file inside is tracked individually)
+*.zip
+
+# Build artifacts
+build/
+*.o
+*.elf
+*.bin
+*.map
+*.d
