@@ -336,6 +336,7 @@ public:
 
     int numSlices() const { return (int)slices_.size(); }
     const Slice& slice(int i) const { return slices_[(size_t)i]; }
+    int lastSlice() const { return lastSlice_; } // most recently triggered slice, for GUI
     bool wasTruncated() const { return truncated_; }
     int numVoicesActive() const {
         int n = 0;
@@ -396,6 +397,7 @@ private:
             decim = 1 + (int)(dg * 7.0f + 0.5f);
         }
         startVoice(idx, semis, reverse, repeats, bits, decim);
+        lastSlice_ = idx;
     }
 
     int weightedPick() {
@@ -519,6 +521,7 @@ private:
     std::vector<Voice> voices_ = std::vector<Voice>(kMaxVoices);
     int seqPos_ = 0;
     int samplesToStep_ = 1;
+    int lastSlice_ = -1;
     bool truncated_ = false;
 };
 
