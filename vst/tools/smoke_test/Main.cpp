@@ -130,8 +130,9 @@ int main(int argc, char** argv) {
         CHECK(inst != nullptr, "bundle: instantiate");
         if (!inst) return 1;
         CHECK(inst->getName() == "Beat Mangler", "bundle: name is Beat Mangler");
-        // 6 of ours + host-added Bypass
-        CHECK(inst->getParameters().size() == 7, "bundle: 7 params (6 + Bypass)");
+        // 6 of ours + host-added Bypass (+ possible MIDI-related params)
+        CHECK(inst->getParameters().size() >= 7, "bundle: params present");
+        CHECK(inst->acceptsMidi(), "bundle: accepts MIDI (Ableton requires it)");
         inst->prepareToPlay(48000.0, 512);
         juce::AudioBuffer<float> buf(2, 512);
         juce::MidiBuffer midi;
