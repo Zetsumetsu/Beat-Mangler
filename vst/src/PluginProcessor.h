@@ -43,16 +43,21 @@ public:
     // GUI-facing state (atomics; written on audio thread, read on message thread)
     std::atomic<bool> playing{false};
     std::atomic<int> sliceCount{0};
+    std::atomic<int> barsCount{0};
     std::atomic<int> lastSlice{-1};
 
     // Message thread only. Suspends processing while the file loads + slices.
     // Note: the loaded audio is NOT saved with the preset (params only).
     bool loadAudioFile(const juce::File& file);
+    bool resliceCurrentFile(); // re-slice loaded file (e.g. grid changed)
     juce::String loadedFileName() const { return loadedFileName_; }
+    double getHostTempo() const;
+    beatmangler::Params currentParams() const;
 
 private:
     beatmangler::Engine engine_;
     juce::String loadedFileName_ = "no file loaded";
+    juce::File loadedFile_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatManglerProcessor)
 };
