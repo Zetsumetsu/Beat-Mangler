@@ -127,6 +127,39 @@ inline void resampleLinear(const std::vector<float>& in, double inRate,
     }
 }
 
+// Resample a buffer to an exact target length (repitch-to-fit a bar grid).
+// Used once at load time, never realtime.
+inline void resampleToLength(std::vector<float>& buf, size_t targetLen) {
+    if (buf.empty() || buf.size() == targetLen || targetLen == 0) return;
+    std::vector<float> out(targetLen);
+    const double ratio = (double)buf.size() / (double)targetLen;
+    for (size_t i = 0; i < targetLen; ++i) {
+        const double p = (double)i * ratio;
+        const size_t i0 = (size_t)p;
+        const double fr = p - (double)i0;
+        const float a = buf[i0];
+        const float b = (i0 + 1 < buf.size()) ? buf[i0 + 1] : a;
+        out[i] = a + (b - a) * (float)fr;
+    }
+    buf.swap(out);
+}
+
+// Fit a buffer length to an integer bar count at the given tempo.
+// Returns bars (1..8), or 0 when the length doesn't sit on a bar grid
+// (one-shots, odd lengths) — caller falls back to transient slicing.
+inline int detectBars(size_t nSamples, double sr, double tempo) {
+    if (tempo <= 0.0 || nSamples == 0 || sr <= 0.0) return 0;
+    const double durSec = (double)nSamples / sr;
+    const double hostBarSec = 240.0 / tempo; // 4 beats
+    if (durSec < hostBarSec * 0.9) return 0; // shorter than ~1 bar
+    int bars = (int)std::round(durSec / hostBarSec);
+    if (bars < 1) bars = 1;
+    if (bars > 8) bars = 8;
+    const double fitLen = (double)bars * hostBarSec;
+    if (std::fabs(durSec - fitLen) / fitLen > 0.05) return 0;
+    return bars;
+}
+
 // ---------------------------------------------------------------------------
 // Slicing
 // ---------------------------------------------------------------------------
@@ -231,6 +264,68 @@ inline std::vector<Slice> buildSlices(const std::vector<float>& l,
     return slices;
 }
 
+// Grid slicing for bar-fitted loops: gridDiv slices per bar (16 = sixteenths,
+// 4 = beats), each boundary snapped to the nearest detected transient within
+// +-25ms so slices never cut a drum hit in half.
+inline std::vector<Slice> buildGridSlices(const std::vector<float>& l,
+                                          const std::vector<float>& r,
+                                          double sr, int bars, int gridDiv) {
+    const int N = (int)l.size();
+    std::vector<Slice> slices;
+    if (N <= 0 || bars <= 0 || gridDiv <= 0) return slices;
+    const int nSlices = bars * gridDiv;
+    std::vector<float> mono((size_t)N);
+    for (int i = 0; i < N; ++i) mono[(size_t)i] = 0.5f * (l[(size_t)i] + r[(size_t)i]);
+    auto onsets = detectOnsets(mono, sr);
+    std::vector<int> onsetPos;
+    onsetPos.reserve(onsets.size());
+    for (auto& o : onsets) onsetPos.push_back(o.second);
+    std::sort(onsetPos.begin(), onsetPos.end());
+    const int snapWin = std::max(1, (int)(0.025 * sr));
+    std::vector<int> bounds;
+    bounds.reserve((size_t)nSlices + 1);
+    for (int i = 0; i <= nSlices; ++i) {
+        int b = (int)((int64_t)i * N / nSlices);
+        if (i > 0 && i < nSlices && !onsetPos.empty()) {
+            int best = b, bestD = snapWin + 1;
+            for (int p : onsetPos) {
+                if (p > b + snapWin) break;
+                const int d = std::abs(p - b);
+                if (d < bestD) {
+                    bestD = d;
+                    best = p;
+                }
+            }
+            b = best;
+        }
+        if (i == 0) b = 0;
+        if (i == nSlices) b = N;
+        bounds.push_back(b);
+    }
+    for (size_t i = 1; i < bounds.size(); ++i) // strictly increasing
+        if (bounds[i] <= bounds[i - 1]) bounds[i] = bounds[i - 1] + 1;
+    const int minLen = std::max(1, (int)(0.005 * sr));
+    for (int i = 0; i < nSlices && (size_t)(i + 1) < bounds.size(); ++i) {
+        const int s = bounds[(size_t)i];
+        int e = bounds[(size_t)i + 1];
+        if (e > N) e = N;
+        if (e - s < minLen) continue;
+        Slice sl;
+        sl.start = s;
+        sl.end = e;
+        double peak = 0.0, sum = 0.0;
+        for (int j = s; j < e; ++j) {
+            const float m = 0.5f * (fabsf(l[(size_t)j]) + fabsf(r[(size_t)j]));
+            if (m > peak) peak = m;
+            sum += (double)m * m;
+        }
+        sl.peak = (float)peak;
+        sl.rms = (float)std::sqrt(sum / (double)(e - s));
+        slices.push_back(sl);
+    }
+    return slices;
+}
+
 // ---------------------------------------------------------------------------
 // Parameters
 // ---------------------------------------------------------------------------
@@ -242,7 +337,8 @@ struct Params {
     float pitchTrim = 0.5f;  // pitch deviation trim, 0..1
     float degradeTrim = 0.5f;// bitcrush/decimation trim, 0..1
     PitchSnap pitchSnap = PitchSnap::Semitone;
-    float bpm = 120.0f;
+    float rate = 1.0f;       // playback rate vs host tempo: 0.25/0.5/1/2
+    int gridDiv = 16;        // slices per bar: 16 (sixteenths) or 4 (beats)
 };
 
 // ---------------------------------------------------------------------------
@@ -277,7 +373,7 @@ inline float crushSample(float x, int bits) {
 class Engine {
 public:
     static constexpr int kMaxVoices = 8;
-    static constexpr int kMaxSlices = 16;
+    static constexpr int kMaxSlices = 128; // 8 bars x 16 sixteenths
     static constexpr double kMaxLoadSeconds = 90.0;
 
     Engine() { reset(); }
@@ -287,8 +383,12 @@ public:
         reset();
     }
 
+    // Host tempo in BPM. The sequencer follows it; RATE multiplies it.
+    void setTempo(double bpm) { tempo_ = bpm > 0.0 ? bpm : 120.0; }
+    double tempo() const { return tempo_; }
+
     // Load from decoded float audio. Resamples, caps length, normalizes,
-    // then slices. Returns false if there is nothing usable.
+    // bar-fits to the host tempo, then slices. Returns false if unusable.
     bool loadWavData(const WavData& wav) {
         if (wav.l.empty() || wav.sampleRate <= 0.0) return false;
         resampleLinear(wav.l, wav.sampleRate, sampleRate_, bufL_);
@@ -312,7 +412,21 @@ public:
                 bufR_[i] *= g;
             }
         }
-        slices_ = buildSlices(bufL_, bufR_, sampleRate_);
+        // Smart bars: fit the loop to an integer bar count at the host
+        // tempo (repitch), then slice on the grid with transient snap.
+        const int bars = detectBars(bufL_.size(), sampleRate_, tempo_);
+        const int div = (params_.gridDiv == 4) ? 4 : 16;
+        if (bars > 0) {
+            const size_t targetLen =
+                (size_t)((double)bars * 240.0 / tempo_ * sampleRate_);
+            resampleToLength(bufL_, targetLen);
+            resampleToLength(bufR_, targetLen);
+            slices_ = buildGridSlices(bufL_, bufR_, sampleRate_, bars, div);
+            bars_ = bars;
+        } else {
+            slices_ = buildSlices(bufL_, bufR_, sampleRate_); // transient fallback
+            bars_ = 0;
+        }
         reset();
         return !slices_.empty();
     }
@@ -337,6 +451,7 @@ public:
     int numSlices() const { return (int)slices_.size(); }
     const Slice& slice(int i) const { return slices_[(size_t)i]; }
     int lastSlice() const { return lastSlice_; } // most recently triggered slice, for GUI
+    int numBars() const { return bars_; } // 0 when transient fallback was used
     bool wasTruncated() const { return truncated_; }
     int numVoicesActive() const {
         int n = 0;
@@ -360,8 +475,9 @@ public:
 
 private:
     int stepSamples() const {
-        const float bpm = params_.bpm > 0.0f ? params_.bpm : 120.0f;
-        return std::max(1, (int)(sampleRate_ * 60.0 / bpm / 4.0)); // 16ths
+        const double t = tempo_ > 0.0 ? tempo_ : 120.0;
+        const double r = params_.rate > 0.0 ? (double)params_.rate : 1.0;
+        return std::max(1, (int)(sampleRate_ * 60.0 / t / 4.0 / r)); // 16ths
     }
 
     void triggerStep() {
@@ -514,6 +630,7 @@ private:
     }
 
     double sampleRate_ = 48000.0;
+    double tempo_ = 120.0; // host tempo, BPM
     Params params_;
     Rng rng_;
     std::vector<float> bufL_, bufR_;
@@ -522,6 +639,7 @@ private:
     int seqPos_ = 0;
     int samplesToStep_ = 1;
     int lastSlice_ = -1;
+    int bars_ = 0;
     bool truncated_ = false;
 };
 
