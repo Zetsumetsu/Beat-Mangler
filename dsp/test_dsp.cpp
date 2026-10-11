@@ -134,7 +134,8 @@ static void render(Engine& e, float chaos, std::vector<float>& l,
                    std::vector<float>& r, double seconds) {
     Params p;
     p.chaos = chaos;
-    p.bpm = 120.0f;
+    p.rate = 1.0f;
+    e.setTempo(120.0);
     e.setParams(p);
     e.reset();
     const int n = (int)(seconds * 48000.0);
@@ -155,15 +156,29 @@ static void render(Engine& e, float chaos, std::vector<float>& l,
 int main() {
     const double sr = 48000.0;
 
-    // A: busy break -> transient slices
+    // A: 2-bar break at host tempo -> grid slices (2 bars x 16)
     {
         Engine e;
         e.setSampleRate(sr);
+        e.setTempo(120.0);
         WavData w = synthBreak(sr);
-        CHECK(e.loadWavData(w), "busy break loads");
+        CHECK(e.loadWavData(w), "2-bar break loads");
         int ns = e.numSlices();
-        printf("  slices found: %d\n", ns);
-        CHECK(ns >= 8 && ns <= 16, "busy break yields 8..16 slices");
+        printf("  slices found: %d, bars: %d\n", ns, e.numBars());
+        CHECK(e.numBars() == 2, "bar detector finds 2 bars");
+        CHECK(ns == 32, "16th grid yields 32 slices");
+    }
+
+    // A2: beat grid -> 2 bars x 4
+    {
+        Engine e;
+        e.setSampleRate(sr);
+        e.setTempo(120.0);
+        Params p;
+        p.gridDiv = 4;
+        e.setParams(p);
+        CHECK(e.loadWavData(synthBreak(sr)), "beat-grid break loads");
+        CHECK(e.numSlices() == 8, "beat grid yields 8 slices");
     }
 
     // B: chaos=0 renders clean, in-order, bounded
@@ -214,13 +229,14 @@ int main() {
         CHECK(e.numSlices() == 1, "one-shot becomes a single slice");
     }
 
-    // E: sustained pad -> grid fallback, 16 slices
+    // E: odd-length pad (3s, not on a bar grid) -> transient fallback, 16 slices
     {
         Engine e;
         e.setSampleRate(sr);
+        e.setTempo(120.0);
         WavData w;
         w.sampleRate = sr;
-        const int N = (int)(4.0 * sr);
+        const int N = (int)(3.0 * sr);
         w.l.assign((size_t)N, 0.0f);
         for (int i = 0; i < N; ++i) {
             double tt = i / sr;
@@ -229,6 +245,7 @@ int main() {
         }
         w.r = w.l;
         CHECK(e.loadWavData(w), "pad loads");
+        CHECK(e.numBars() == 0, "odd length skips bar detection");
         CHECK(e.numSlices() == 16, "pad falls back to 16 grid slices");
     }
 
