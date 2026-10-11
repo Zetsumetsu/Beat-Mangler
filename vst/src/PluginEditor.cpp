@@ -85,7 +85,6 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     setupKnob(densityKnob, "density", "density");
     setupKnob(pitchKnob, "pitch", "pitchTrim");
     setupKnob(degradeKnob, "degrade", "degradeTrim");
-    setupKnob(bpmKnob, "bpm", "bpm");
 
     auto& apvts = proc.apvts;
     chaosAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -96,8 +95,6 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
         apvts, "pitchTrim", pitchKnob);
     degradeAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         apvts, "degradeTrim", degradeKnob);
-    bpmAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        apvts, "bpm", bpmKnob);
 
     auto setupLabel = [&](juce::Label& l, const juce::String& text, int size,
                           juce::Colour c = kText) {
@@ -112,13 +109,14 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.1  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.2  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
     setupLabel(pitchLabel, "PITCH", 11);
     setupLabel(degradeLabel, "DEGRADE", 11);
-    setupLabel(bpmLabel, "BPM", 11);
+    setupLabel(rateLabel, "RATE", 11);
+    setupLabel(gridLabel, "GRID", 11);
     setupLabel(sliceInfoLabel, "no file loaded", 12, kDim);
     sliceInfoLabel.setJustificationType(juce::Justification::left);
     setupLabel(sliceReadout, "--", 22, kSteel);
@@ -145,6 +143,45 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(
             proc.apvts.getParameter("pitchSnap")))
         snapButtons[choice->getIndex()].setToggleState(
+            true, juce::dontSendNotification);
+
+    // RATE: 2x2 segmented (1/4, 1/2, 1, 2) in the old BPM knob slot
+    const char* rateNames[4] = {"1/4", "1/2", "1", "2"};
+    for (int i = 0; i < 4; ++i) {
+        rateButtons[i].setButtonText(rateNames[i]);
+        rateButtons[i].setName("snap");
+        rateButtons[i].setRadioGroupId(778);
+        rateButtons[i].setClickingTogglesState(true);
+        addAndMakeVisible(rateButtons[i]);
+        rateButtons[i].onClick = [this, i] {
+            if (auto* param = proc.apvts.getParameter("rate"))
+                param->setValueNotifyingHost((float)i / 3.0f);
+        };
+    }
+    if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(
+            proc.apvts.getParameter("rate")))
+        rateButtons[choice->getIndex()].setToggleState(
+            true, juce::dontSendNotification);
+
+    // GRID: 16ths vs beats
+    const char* gridNames[2] = {"16TH", "BEAT"};
+    for (int i = 0; i < 2; ++i) {
+        gridButtons[i].setButtonText(gridNames[i]);
+        gridButtons[i].setName("snap");
+        gridButtons[i].setRadioGroupId(779);
+        gridButtons[i].setClickingTogglesState(true);
+        addAndMakeVisible(gridButtons[i]);
+        gridButtons[i].onClick = [this, i] {
+            if (auto* param = proc.apvts.getParameter("grid"))
+                param->setValueNotifyingHost((float)i);
+            // grid change requires re-slicing; reload the current file
+            proc.resliceCurrentFile();
+            updateSliceInfo();
+        };
+    }
+    if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(
+            proc.apvts.getParameter("grid")))
+        gridButtons[choice->getIndex()].setToggleState(
             true, juce::dontSendNotification);
 
     loadButton.onClick = [this] { loadFile(); };
@@ -184,15 +221,22 @@ void BeatManglerEditor::resized() {
     pitchLabel.setBounds(320, 192, 90, 18);
     degradeKnob.setBounds(420, 100, 90, 90);
     degradeLabel.setBounds(420, 192, 90, 18);
-    bpmKnob.setBounds(524, 100, 90, 90);
-    bpmLabel.setBounds(524, 192, 90, 18);
+    // RATE 2x2 in the old BPM slot
+    rateButtons[0].setBounds(524, 100, 43, 43);
+    rateButtons[1].setBounds(569, 100, 43, 43);
+    rateButtons[2].setBounds(524, 145, 43, 43);
+    rateButtons[3].setBounds(569, 145, 43, 43);
+    rateLabel.setBounds(524, 192, 90, 18);
     for (int i = 0; i < 3; ++i)
         snapButtons[i].setBounds(36 + i * 66, 286, 62, 34);
-    loadButton.setBounds(252, 286, 110, 34);
-    fileLabel.setBounds(372, 286, 244, 34);
-    sliceInfoLabel.setBounds(36, 336, 200, 24);
-    playButton.setBounds(252, 330, 130, 44);
-    sliceReadout.setBounds(410, 330, 200, 44);
+    gridButtons[0].setBounds(242, 286, 62, 34);
+    gridButtons[1].setBounds(308, 286, 62, 34);
+    gridLabel.setBounds(242, 322, 128, 14);
+    loadButton.setBounds(392, 286, 90, 34);
+    fileLabel.setBounds(492, 286, 124, 34);
+    sliceInfoLabel.setBounds(36, 340, 200, 20);
+    playButton.setBounds(252, 340, 130, 40);
+    sliceReadout.setBounds(410, 340, 200, 40);
     footerLabel.setBounds(24, 398, 592, 24);
 }
 
@@ -219,8 +263,12 @@ void BeatManglerEditor::loadFile() {
 
 void BeatManglerEditor::updateSliceInfo() {
     int n = proc.sliceCount.load();
-    sliceInfoLabel.setText(n > 0 ? juce::String(n) + " SLICES" : "no file loaded",
-                           juce::dontSendNotification);
+    int bars = proc.barsCount.load();
+    juce::String t;
+    if (n <= 0) t = "no file loaded";
+    else if (bars > 0) t = juce::String(bars) + " BARS - " + juce::String(n) + " SLICES";
+    else t = juce::String(n) + " SLICES";
+    sliceInfoLabel.setText(t, juce::dontSendNotification);
 }
 
 void BeatManglerEditor::timerCallback() {
@@ -234,4 +282,16 @@ void BeatManglerEditor::timerCallback() {
         playButton.setToggleState(false, juce::dontSendNotification);
         playButton.setButtonText("PLAY");
     }
+    // keep segmented controls in sync with host/preset changes
+    auto syncSeg = [&](juce::TextButton* btns, int count, const char* param) {
+        if (auto* c = dynamic_cast<juce::AudioParameterChoice*>(
+                proc.apvts.getParameter(param))) {
+            const int idx = c->getIndex();
+            for (int i = 0; i < count; ++i)
+                btns[i].setToggleState(i == idx, juce::dontSendNotification);
+        }
+    };
+    syncSeg(snapButtons, 3, "pitchSnap");
+    syncSeg(rateButtons, 4, "rate");
+    syncSeg(gridButtons, 2, "grid");
 }
