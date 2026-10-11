@@ -37,15 +37,18 @@ private:
     BeatManglerProcessor& proc;
     ManglerLookAndFeel laf;
 
-    juce::Slider chaosKnob, densityKnob, pitchKnob, degradeKnob, bpmKnob;
-    juce::Label chaosLabel, densityLabel, pitchLabel, degradeLabel, bpmLabel;
+    juce::Slider chaosKnob, densityKnob, pitchKnob, degradeKnob;
+    juce::Label chaosLabel, densityLabel, pitchLabel, degradeLabel, rateLabel,
+        gridLabel;
     juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel, sliceReadout,
         footerLabel;
     juce::TextButton loadButton{"LOAD"}, playButton{"PLAY"};
     juce::TextButton snapButtons[3];
+    juce::TextButton rateButtons[4];
+    juce::TextButton gridButtons[2];
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> chaosAtt,
-        densityAtt, pitchAtt, degradeAtt, bpmAtt;
+        densityAtt, pitchAtt, degradeAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatManglerEditor)
 };
