@@ -41,8 +41,8 @@ private:
     juce::Label chaosLabel, densityLabel, pitchLabel, degradeLabel, rateLabel,
         gridLabel;
     juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel, sliceReadout,
-        footerLabel;
-    juce::TextButton loadButton{"LOAD"}, playButton{"PLAY"};
+        footerLabel, transportLabel;
+    juce::TextButton loadButton{"LOAD"};
     juce::TextButton snapButtons[3];
     juce::TextButton rateButtons[4];
     juce::TextButton gridButtons[2];
