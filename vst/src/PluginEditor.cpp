@@ -109,7 +109,7 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.3  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.4  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -187,7 +187,18 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     loadButton.onClick = [this] { loadFile(); };
     addAndMakeVisible(loadButton);
 
-    setupLabel(transportLabel, "STOPPED", 16, kDim);
+    playButton.setClickingTogglesState(true);
+    playButton.setToggleState(true, juce::dontSendNotification);
+    playButton.onClick = [this] {
+        const bool open = playButton.getToggleState();
+        proc.gateOpen.store(open);
+        // optimistic label; the timer refines it (QUEUED while armed)
+        playButton.setButtonText(open ? "QUEUED" : "PLAY");
+    };
+    addAndMakeVisible(playButton);
+
+    setupLabel(transportLabel, "HOST STOPPED", 11, kDim);
+    transportLabel.setJustificationType(juce::Justification::left);
 
     updateSliceInfo();
     startTimerHz(15);
@@ -230,7 +241,8 @@ void BeatManglerEditor::resized() {
     loadButton.setBounds(392, 286, 90, 34);
     fileLabel.setBounds(492, 286, 124, 34);
     sliceInfoLabel.setBounds(36, 340, 200, 20);
-    transportLabel.setBounds(252, 340, 130, 40);
+    transportLabel.setBounds(36, 366, 200, 16);
+    playButton.setBounds(252, 340, 130, 40);
     sliceReadout.setBounds(410, 340, 200, 40);
     footerLabel.setBounds(24, 398, 592, 24);
 }
@@ -274,8 +286,16 @@ void BeatManglerEditor::timerCallback() {
                              : "--",
                          juce::dontSendNotification);
     const bool tp = proc.transportPlaying.load();
-    transportLabel.setText(tp ? "PLAYING" : "STOPPED", juce::dontSendNotification);
+    transportLabel.setText(tp ? "HOST PLAYING" : "HOST STOPPED",
+                           juce::dontSendNotification);
     transportLabel.setColour(juce::Label::textColourId, tp ? kRed : kDim);
+    // play button reflects the gate/launch state
+    if (!playButton.getToggleState())
+        playButton.setButtonText("PLAY");
+    else if (proc.launchArmed.load())
+        playButton.setButtonText("QUEUED");
+    else
+        playButton.setButtonText("STOP");
     // keep segmented controls in sync with host/preset changes
     auto syncSeg = [&](juce::TextButton* btns, int count, const char* param) {
         if (auto* c = dynamic_cast<juce::AudioParameterChoice*>(
