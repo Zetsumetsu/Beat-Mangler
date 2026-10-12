@@ -109,7 +109,7 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.5  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.6  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -339,6 +339,33 @@ void BeatManglerEditor::setAutoBypass(bool on, bool snapshot) {
     }
 }
 
+juce::String BeatManglerEditor::mangleWord(float intensity, juce::Random& rng) {
+    static const char truth[8] = "MANGLER";
+    static const char glyphs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&@$?!*+=";
+    const int ng = (int)sizeof(glyphs) - 1;
+    char out[8];
+    for (int i = 0; i < 7; ++i)
+        out[i] = (rng.nextFloat() < intensity) ? glyphs[rng.nextInt(ng)] : truth[i];
+    out[7] = '\0';
+    return juce::String(out);
+}
+
+juce::String BeatManglerEditor::gibberish(int len, juce::Random& rng) {
+    static const juce::String tokens[] = {
+        "A", "B", "E", "H", "K", "M", "N", "R", "T", "X", "Z",
+        "0", "1", "3", "4", "7", "8",
+        "#", "%", "&", "@", "$", "?", "!", "/", "<", ">", "*", "+", "=",
+        juce::String::charToString(0x2593), // dark shade
+        juce::String::charToString(0x2592), // medium shade
+        juce::String::charToString(0x2591), // light shade
+    };
+    const int nt = (int)(sizeof(tokens) / sizeof(tokens[0]));
+    juce::String s;
+    for (int i = 0; i < len; ++i)
+        s += tokens[rng.nextInt(nt)];
+    return s;
+}
+
 void BeatManglerEditor::timerCallback() {
     // project restore: the sample (re)slices on the first audio block —
     // if the count or filename changes under us, refresh the readouts
@@ -352,10 +379,6 @@ void BeatManglerEditor::timerCallback() {
 
     int ls = proc.lastSlice.load();
     int n = proc.sliceCount.load();
-    sliceReadout.setText(n > 0 && ls >= 0
-                             ? "SLICE " + juce::String(ls + 1).paddedLeft('0', 2)
-                             : "--",
-                         juce::dontSendNotification);
     const bool tp = proc.transportPlaying.load();
     transportLabel.setText(tp ? "HOST PLAYING" : "HOST STOPPED",
                            juce::dontSendNotification);
@@ -367,6 +390,33 @@ void BeatManglerEditor::timerCallback() {
         playButton.setButtonText("QUEUED");
     else
         playButton.setButtonText("STOP");
+    // Scramble display: while the engine is actually playing, the word
+    // MANGLER mangles itself on every slice hit (harder with more CHAOS),
+    // wrong letters heal back toward the truth between hits, and the old
+    // slice readout runs raw decoder gibberish. Stopped = clean title.
+    {
+        const bool rolling = tp && playButton.getToggleState() && n > 0;
+        if (rolling) {
+            const float chaos = proc.effectiveParams().chaos;
+            if (ls != lastSliceSeen_) {
+                manglerShown_ = mangleWord(0.2f + 0.8f * chaos, rng_).toStdString();
+                gibberishShown_ = gibberish(12, rng_);
+            } else {
+                static const char truth[8] = "MANGLER";
+                for (int i = 0; i < 7; ++i)
+                    if (manglerShown_[(size_t)i] != truth[i] &&
+                        rng_.nextFloat() < 0.18f)
+                        manglerShown_[(size_t)i] = truth[i];
+            }
+        } else {
+            manglerShown_ = "MANGLER";
+            gibberishShown_ = "--";
+        }
+        lastSliceSeen_ = ls;
+        titleLabel.setText("BEAT " + juce::String(manglerShown_),
+                           juce::dontSendNotification);
+        sliceReadout.setText(gibberishShown_, juce::dontSendNotification);
+    }
     // keep segmented controls in sync with host/preset changes
     auto syncSeg = [&](juce::TextButton* btns, int count, const char* param) {
         if (auto* c = dynamic_cast<juce::AudioParameterChoice*>(
