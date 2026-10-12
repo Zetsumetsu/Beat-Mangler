@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <cstring>
 
 BeatManglerProcessor::BeatManglerProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output",
@@ -46,29 +47,42 @@ bool BeatManglerProcessor::isBusesLayoutSupported(const BusesLayout& layouts) co
     return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
 }
 
+bool BeatManglerProcessor::performLoad(double tempo) {
+    if (loadedData_.getSize() < 44)
+        return false;
+    // Fresh params + tempo so bar detection sees the current grid.
+    engine_.setParams(effectiveParams());
+    engine_.setTempo(tempo);
+    const bool ok = engine_.loadWavBytes(
+        (const uint8_t*)loadedData_.getData(), loadedData_.getSize());
+    if (ok) {
+        sliceCount.store(engine_.numSlices());
+        barsCount.store(engine_.numBars());
+    }
+    return ok;
+}
+
 bool BeatManglerProcessor::loadAudioFile(const juce::File& file) {
     juce::MemoryBlock data;
     if (!file.loadFileAsData(data) || data.getSize() < 44)
         return false;
-    // Fresh params + host tempo so bar detection sees the current grid.
-    beatmangler::Params p = currentParams();
-    engine_.setParams(p);
-    engine_.setTempo(getHostTempo());
+    loadedData_ = data; // kept for project persistence
     suspendProcessing(true);
-    const bool ok = engine_.loadWavBytes((const uint8_t*)data.getData(), data.getSize());
+    const bool ok = performLoad(getHostTempo());
     if (ok) {
         loadedFileName_ = file.getFileName();
         loadedFile_ = file;
-        sliceCount.store(engine_.numSlices());
-        barsCount.store(engine_.numBars());
     }
     suspendProcessing(false);
     return ok;
 }
 
 bool BeatManglerProcessor::resliceCurrentFile() {
-    if (!loadedFile_.existsAsFile()) return false;
-    return loadAudioFile(loadedFile_);
+    if (loadedData_.getSize() < 44) return false;
+    suspendProcessing(true);
+    const bool ok = performLoad(getHostTempo());
+    suspendProcessing(false);
+    return ok;
 }
 
 beatmangler::Params BeatManglerProcessor::currentParams() const {
@@ -86,6 +100,34 @@ beatmangler::Params BeatManglerProcessor::currentParams() const {
     return p;
 }
 
+void BeatManglerProcessor::engageAutoBypass() {
+    const beatmangler::Params p = currentParams();
+    manChaos.store(p.chaos);
+    manDensity.store(p.density);
+    manPitch.store(p.pitchTrim);
+    manDegrade.store(p.degradeTrim);
+    manRate.store(p.rate);
+    manGrid.store(p.gridDiv);
+    manSnap.store((int)p.pitchSnap);
+    autoBypass.store(true);
+}
+
+beatmangler::Params BeatManglerProcessor::manualParams() const {
+    beatmangler::Params p;
+    p.chaos = manChaos.load();
+    p.density = manDensity.load();
+    p.pitchTrim = manPitch.load();
+    p.degradeTrim = manDegrade.load();
+    p.rate = manRate.load();
+    p.gridDiv = manGrid.load();
+    p.pitchSnap = (beatmangler::PitchSnap)manSnap.load();
+    return p;
+}
+
+beatmangler::Params BeatManglerProcessor::effectiveParams() const {
+    return autoBypass.load() ? manualParams() : currentParams();
+}
+
 void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                         juce::MidiBuffer& midiMessages) {
     juce::ScopedNoDenormals noDenormals;
@@ -100,13 +142,15 @@ void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // beat 1 lines up with beat 1, and we start/stop with the song.
     bool hostPlaying = true;
     double ppq = fallbackPpq_;
+    double blockTempo = engine_.tempo();
     bool havePosition = false;
     if (auto* ph = getPlayHead()) {
         if (auto pos = ph->getPosition()) {
             havePosition = true;
             hostPlaying = pos->getIsPlaying();
             ppq = pos->getPpqPosition().orFallback(0.0);
-            engine_.setTempo(pos->getBpm().orFallback(120.0));
+            blockTempo = pos->getBpm().orFallback(120.0);
+            engine_.setTempo(blockTempo);
         }
     }
     if (!havePosition) {
@@ -117,31 +161,97 @@ void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     transportPlaying.store(hostPlaying);
 
+    // Deferred project restore: slice the embedded sample now that the
+    // real host tempo is known (bar detection depends on it).
+    if (pendingReload_.load()) {
+        pendingReload_.store(false);
+        performLoad(blockTempo);
+    }
+
     if (engine_.numSlices() == 0)
         return;
 
-    // Panel gate edges drive the engine's launch control: closing stops
-    // immediately; opening arms a quantized restart at the next bar line.
+    // Panel gate drives the engine's launch control: closed stops now;
+    // a rising edge arms a quantized restart at the next bar line.
     const bool g = gateOpen.load();
-    if (g != lastGate_) {
-        if (g) engine_.armLaunch();
-        else engine_.stopNow();
-        lastGate_ = g;
-    }
+    if (!g)
+        engine_.stopNow();
+    else if (!lastGate_)
+        engine_.armLaunch();
+    lastGate_ = g;
     launchArmed.store(engine_.launchState() == beatmangler::Engine::Launch::Armed);
 
-    engine_.setParams(currentParams());
+    engine_.setParams(effectiveParams());
     engine_.processSynced(buffer.getWritePointer(0), buffer.getWritePointer(1),
                           numSamples, ppq, hostPlaying);
     lastSlice.store(engine_.lastSlice());
 }
 
 void BeatManglerProcessor::getStateInformation(juce::MemoryBlock& destData) {
-    if (auto xml = apvts.copyState().createXml())
-        copyXmlToBinary(*xml, destData);
+    auto xml = apvts.copyState().createXml();
+    if (xml == nullptr)
+        return;
+    xml->setAttribute("bmFile", loadedFileName_);
+    xml->setAttribute("bmGate", gateOpen.load() ? 1 : 0);
+    xml->setAttribute("bmAuto", autoBypass.load() ? 1 : 0);
+    xml->setAttribute("bmMChaos", (double)manChaos.load());
+    xml->setAttribute("bmMDensity", (double)manDensity.load());
+    xml->setAttribute("bmMPitch", (double)manPitch.load());
+    xml->setAttribute("bmMDegrade", (double)manDegrade.load());
+    xml->setAttribute("bmMRate", (double)manRate.load());
+    xml->setAttribute("bmMGrid", manGrid.load());
+    xml->setAttribute("bmMSnap", manSnap.load());
+    juce::MemoryBlock xmlBlock;
+    copyXmlToBinary(*xml, xmlBlock);
+    // Layout: "BMS1" | int64 xmlLen | xml | int64 audioLen | audio bytes.
+    // The sample itself is embedded, so the project is self-contained.
+    juce::MemoryOutputStream os(destData, false);
+    os.write("BMS1", 4);
+    os.writeInt64((juce::int64)xmlBlock.getSize());
+    os.write(xmlBlock.getData(), xmlBlock.getSize());
+    os.writeInt64((juce::int64)loadedData_.getSize());
+    if (loadedData_.getSize() > 0)
+        os.write(loadedData_.getData(), loadedData_.getSize());
 }
 
 void BeatManglerProcessor::setStateInformation(const void* data, int sizeInBytes) {
+    if (sizeInBytes >= 4 && std::memcmp(data, "BMS1", 4) == 0) {
+        juce::MemoryInputStream is(data, (size_t)sizeInBytes, false);
+        is.setPosition(4);
+        const auto xmlLen = is.readInt64();
+        if (xmlLen > 0 && xmlLen <= sizeInBytes) {
+            juce::MemoryBlock xmlBlock;
+            xmlBlock.setSize((size_t)xmlLen);
+            is.read(xmlBlock.getData(), (size_t)xmlLen);
+            if (auto xml = getXmlFromBinary(xmlBlock.getData(),
+                                            (int)xmlBlock.getSize())) {
+                loadedFileName_ =
+                    xml->getStringAttribute("bmFile", "no file loaded");
+                gateOpen.store(xml->getIntAttribute("bmGate", 1) != 0);
+                lastGate_ = gateOpen.load();
+                if (!lastGate_) engine_.stopNow();
+                manChaos.store((float)xml->getDoubleAttribute("bmMChaos", 0.0));
+                manDensity.store((float)xml->getDoubleAttribute("bmMDensity", 0.5));
+                manPitch.store((float)xml->getDoubleAttribute("bmMPitch", 0.5));
+                manDegrade.store((float)xml->getDoubleAttribute("bmMDegrade", 0.5));
+                manRate.store((float)xml->getDoubleAttribute("bmMRate", 1.0));
+                manGrid.store(xml->getIntAttribute("bmMGrid", 16));
+                manSnap.store(xml->getIntAttribute("bmMSnap", 1));
+                autoBypass.store(xml->getIntAttribute("bmAuto", 0) != 0);
+                apvts.replaceState(juce::ValueTree::fromXml(*xml));
+            }
+        }
+        const auto audioLen = is.readInt64();
+        if (audioLen > 0 && audioLen <= sizeInBytes) {
+            loadedData_.setSize((size_t)audioLen);
+            is.read(loadedData_.getData(), (size_t)audioLen);
+            // Sliced on the first audio block, once the real host tempo
+            // is known (bar detection depends on it).
+            pendingReload_.store(true);
+        }
+        return;
+    }
+    // Legacy (pre-v0.5) state: bare APVTS XML, no sample.
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
 }
