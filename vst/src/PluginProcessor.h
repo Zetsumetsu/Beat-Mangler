@@ -42,6 +42,8 @@ public:
 
     // GUI-facing state (atomics; written on audio thread, read on message thread)
     std::atomic<bool> transportPlaying{false}; // mirrors the HOST transport
+    std::atomic<bool> gateOpen{true}; // panel Play/Stop gate over the host sync
+    std::atomic<bool> launchArmed{false}; // waiting for the next bar line
     std::atomic<int> sliceCount{0};
     std::atomic<int> barsCount{0};
     std::atomic<int> lastSlice{-1};
@@ -59,6 +61,7 @@ private:
     juce::String loadedFileName_ = "no file loaded";
     juce::File loadedFile_;
     double fallbackPpq_ = 0.0; // free-run position when host gives none
+    bool lastGate_ = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatManglerProcessor)
 };
