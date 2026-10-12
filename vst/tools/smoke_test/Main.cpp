@@ -189,6 +189,38 @@ int main(int argc, char** argv) {
     std::printf("  chaos=1 peak: %.3f\n", peak1);
     CHECK(fin1 && peak1 > 0.01f && peak1 <= 1.0f, "direct: chaos=1 renders sane audio");
 
+    // state round-trip: the loaded sample must survive save + reopen
+    {
+        juce::MemoryBlock state;
+        proc.getStateInformation(state);
+        CHECK(state.getSize() > 1000, "state: embeds the sample");
+        BeatManglerProcessor proc2;
+        proc2.prepareToPlay(48000.0, 512);
+        proc2.setStateInformation(state.getData(), (int)state.getSize());
+        juce::AudioBuffer<float> buf2(2, 512);
+        juce::MidiBuffer midi2;
+        for (int b = 0; b < 20; ++b) {
+            buf2.clear();
+            proc2.processBlock(buf2, midi2);
+        }
+        CHECK(proc2.sliceCount.load() == ns, "state: sample re-sliced after reopen");
+        CHECK(proc2.loadedFileName() == proc.loadedFileName(),
+              "state: filename restored");
+        float peak2 = 0.f;
+        for (int b = 0; b < 100; ++b) {
+            buf2.clear();
+            proc2.processBlock(buf2, midi2);
+            peak2 = std::max(peak2, peakBuf(buf2));
+        }
+        CHECK(peak2 > 0.01f, "state: restored instance renders audio");
+        // automation bypass: effective params come from the manual snapshot
+        proc2.engageAutoBypass();
+        proc2.manChaos.store(0.0f);
+        CHECK(proc2.autoBypass.load() &&
+                  std::abs(proc2.effectiveParams().chaos) < 1e-6f,
+              "bypass: manual snapshot drives the engine");
+    }
+
     // real editor
     std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
     CHECK(ed != nullptr, "direct: editor created");
