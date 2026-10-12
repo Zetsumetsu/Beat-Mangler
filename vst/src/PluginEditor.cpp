@@ -109,7 +109,7 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.2  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.3  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -187,12 +187,7 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     loadButton.onClick = [this] { loadFile(); };
     addAndMakeVisible(loadButton);
 
-    playButton.setClickingTogglesState(true);
-    playButton.onClick = [this] {
-        proc.playing.store(playButton.getToggleState());
-        playButton.setButtonText(playButton.getToggleState() ? "STOP" : "PLAY");
-    };
-    addAndMakeVisible(playButton);
+    setupLabel(transportLabel, "STOPPED", 16, kDim);
 
     updateSliceInfo();
     startTimerHz(15);
@@ -235,7 +230,7 @@ void BeatManglerEditor::resized() {
     loadButton.setBounds(392, 286, 90, 34);
     fileLabel.setBounds(492, 286, 124, 34);
     sliceInfoLabel.setBounds(36, 340, 200, 20);
-    playButton.setBounds(252, 340, 130, 40);
+    transportLabel.setBounds(252, 340, 130, 40);
     sliceReadout.setBounds(410, 340, 200, 40);
     footerLabel.setBounds(24, 398, 592, 24);
 }
@@ -278,10 +273,9 @@ void BeatManglerEditor::timerCallback() {
                              ? "SLICE " + juce::String(ls + 1).paddedLeft('0', 2)
                              : "--",
                          juce::dontSendNotification);
-    if (!proc.playing.load() && playButton.getToggleState()) {
-        playButton.setToggleState(false, juce::dontSendNotification);
-        playButton.setButtonText("PLAY");
-    }
+    const bool tp = proc.transportPlaying.load();
+    transportLabel.setText(tp ? "PLAYING" : "STOPPED", juce::dontSendNotification);
+    transportLabel.setColour(juce::Label::textColourId, tp ? kRed : kDim);
     // keep segmented controls in sync with host/preset changes
     auto syncSeg = [&](juce::TextButton* btns, int count, const char* param) {
         if (auto* c = dynamic_cast<juce::AudioParameterChoice*>(
