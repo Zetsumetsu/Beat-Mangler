@@ -36,6 +36,18 @@ private:
     void setAutoBypass(bool on, bool snapshot);
     int shownSlices_ = -2;
 
+public:
+    // Display scramble: the title mangles itself while the engine plays.
+    // intensity 0 = the true word, 1 = full gibberish (length preserved).
+    static juce::String mangleWord(float intensity, juce::Random& rng);
+    static juce::String gibberish(int len, juce::Random& rng);
+
+private:
+    juce::Random rng_;
+    std::string manglerShown_ = "MANGLER"; // current (possibly scrambled) title word
+    juce::String gibberishShown_ = "--";
+    int lastSliceSeen_ = -1;
+
     BeatManglerProcessor& proc;
     ManglerLookAndFeel laf;
 
