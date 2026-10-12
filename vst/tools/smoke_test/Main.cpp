@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
     std::printf("  slices: %d\n", ns);
     CHECK(ns >= 4, "direct: slices found");
 
-    proc.playing.store(true);
+    // no playhead in this harness: the processor free-runs (transport on)
     auto setParam = [&](const char* id, float v) {
         if (auto* p = proc.apvts.getParameter(id))
             p->setValueNotifyingHost(v);
