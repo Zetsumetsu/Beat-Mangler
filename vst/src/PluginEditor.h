@@ -42,7 +42,7 @@ private:
         gridLabel;
     juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel, sliceReadout,
         footerLabel, transportLabel;
-    juce::TextButton loadButton{"LOAD"};
+    juce::TextButton loadButton{"LOAD"}, playButton{"STOP"};
     juce::TextButton snapButtons[3];
     juce::TextButton rateButtons[4];
     juce::TextButton gridButtons[2];
