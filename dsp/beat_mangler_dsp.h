@@ -443,8 +443,9 @@ public:
 
     void reset(uint32_t seed = 0xBEA7u) {
         rng_.seed(seed);
-        seqPos_ = 0;
+        absStep_ = 0;
         samplesToStep_ = 1; // trigger immediately on first block
+        syncActive_ = false;
         for (auto& v : voices_) v.active = false;
     }
 
@@ -459,10 +460,12 @@ public:
         return n;
     }
 
+    // Free-running processing (host tests, Daisy firmware path).
     void process(float* outL, float* outR, int n) {
         for (int i = 0; i < n; ++i) {
             if (--samplesToStep_ <= 0) {
                 triggerStep();
+                absStep_++;
                 samplesToStep_ += stepSamples();
             }
             float l = 0.0f, r = 0.0f;
@@ -471,6 +474,47 @@ public:
             outL[i] = std::tanh(l);
             outR[i] = std::tanh(r);
         }
+    }
+
+    // Host-synced processing: steps fire on the host's PPQ grid (scaled by
+    // RATE) and the in-order slice index derives from absolute song
+    // position, so beat 1 of the song lines up with beat 1 of the loop.
+    // Silence while the transport is stopped. A position jump (seek,
+    // loop wrap) re-aligns on the next block.
+    void processSynced(float* outL, float* outR, int n, double ppqStart,
+                       bool transportPlaying) {
+        if (!transportPlaying) {
+            for (auto& v : voices_) v.active = false;
+            syncActive_ = false;
+            for (int i = 0; i < n; ++i) {
+                outL[i] = 0.0f;
+                outR[i] = 0.0f;
+            }
+            return;
+        }
+        const double ppqPerSample = (tempo_ / 60.0) / sampleRate_;
+        const double rate = params_.rate > 0.0f ? (double)params_.rate : 1.0;
+        const double stepPpq = 0.25 / rate;
+        if (!syncActive_ || std::fabs(ppqStart - expectedPpq_) > stepPpq * 0.5) {
+            const double k = std::ceil(ppqStart / stepPpq - 1e-9);
+            nextStepPpq_ = k * stepPpq;
+            absStep_ = (int64_t)k;
+            syncActive_ = true;
+        }
+        for (int i = 0; i < n; ++i) {
+            const double ppqNow = ppqStart + (double)i * ppqPerSample;
+            while (ppqNow >= nextStepPpq_ - 1e-9) {
+                triggerStep();
+                absStep_++;
+                nextStepPpq_ += stepPpq;
+            }
+            float l = 0.0f, r = 0.0f;
+            for (auto& v : voices_)
+                if (v.active) renderVoice(v, l, r);
+            outL[i] = std::tanh(l);
+            outR[i] = std::tanh(r);
+        }
+        expectedPpq_ = ppqStart + (double)n * ppqPerSample;
     }
 
 private:
@@ -484,18 +528,15 @@ private:
         const int ns = numSlices();
         if (ns == 0) return;
         const float chaos = params_.chaos;
+        // in-order reference is the absolute step position, so ordered
+        // picks always match where the song (or free-run clock) is
+        const int ordered = (int)(((absStep_ % ns) + ns) % ns);
         int idx;
         if (chaos <= 0.0001f) {
-            idx = seqPos_ % ns; // faithful: in order, no transforms
-            seqPos_++;
+            idx = ordered; // faithful: in order, no transforms
         } else {
             const float rp = std::pow(chaos, 1.5f);
-            if (rng_.uniform() < rp)
-                idx = weightedPick();
-            else {
-                idx = seqPos_ % ns;
-                seqPos_++;
-            }
+            idx = (rng_.uniform() < rp) ? weightedPick() : ordered;
         }
         float semis = 0.0f;
         bool reverse = false;
@@ -636,11 +677,15 @@ private:
     std::vector<float> bufL_, bufR_;
     std::vector<Slice> slices_;
     std::vector<Voice> voices_ = std::vector<Voice>(kMaxVoices);
-    int seqPos_ = 0;
+    int64_t absStep_ = 0;
     int samplesToStep_ = 1;
     int lastSlice_ = -1;
     int bars_ = 0;
     bool truncated_ = false;
+    // host-sync state
+    bool syncActive_ = false;
+    double nextStepPpq_ = 0.0;
+    double expectedPpq_ = 0.0;
 };
 
 } // namespace beatmangler
