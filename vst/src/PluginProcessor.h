@@ -44,12 +44,23 @@ public:
     std::atomic<bool> transportPlaying{false}; // mirrors the HOST transport
     std::atomic<bool> gateOpen{true}; // panel Play/Stop gate over the host sync
     std::atomic<bool> launchArmed{false}; // waiting for the next bar line
+
+    // Automation bypass: when engaged, the engine runs on this manual
+    // snapshot and host parameter automation is ignored until released.
+    std::atomic<bool> autoBypass{false};
+    std::atomic<float> manChaos{0.0f}, manDensity{0.5f}, manPitch{0.5f},
+        manDegrade{0.5f}, manRate{1.0f};
+    std::atomic<int> manGrid{16}, manSnap{1};
+    void engageAutoBypass(); // snapshot current params into the manual set
+    beatmangler::Params manualParams() const;
+    beatmangler::Params effectiveParams() const; // manual if bypassed
     std::atomic<int> sliceCount{0};
     std::atomic<int> barsCount{0};
     std::atomic<int> lastSlice{-1};
 
     // Message thread only. Suspends processing while the file loads + slices.
-    // Note: the loaded audio is NOT saved with the preset (params only).
+    // The file's bytes are kept and embedded in the plugin state, so the
+    // sample is restored when the project is reopened.
     bool loadAudioFile(const juce::File& file);
     bool resliceCurrentFile(); // re-slice loaded file (e.g. grid changed)
     juce::String loadedFileName() const { return loadedFileName_; }
@@ -57,9 +68,13 @@ public:
     beatmangler::Params currentParams() const;
 
 private:
+    // Slice the stashed file bytes into the engine at the given tempo.
+    bool performLoad(double tempo);
     beatmangler::Engine engine_;
     juce::String loadedFileName_ = "no file loaded";
     juce::File loadedFile_;
+    juce::MemoryBlock loadedData_; // raw bytes of the loaded file (for state)
+    std::atomic<bool> pendingReload_{false}; // state restored: load on 1st block
     double fallbackPpq_ = 0.0; // free-run position when host gives none
     bool lastGate_ = true;
 
