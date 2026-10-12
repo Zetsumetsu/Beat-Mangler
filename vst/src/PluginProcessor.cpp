@@ -120,6 +120,16 @@ void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (engine_.numSlices() == 0)
         return;
 
+    // Panel gate edges drive the engine's launch control: closing stops
+    // immediately; opening arms a quantized restart at the next bar line.
+    const bool g = gateOpen.load();
+    if (g != lastGate_) {
+        if (g) engine_.armLaunch();
+        else engine_.stopNow();
+        lastGate_ = g;
+    }
+    launchArmed.store(engine_.launchState() == beatmangler::Engine::Launch::Armed);
+
     engine_.setParams(currentParams());
     engine_.processSynced(buffer.getWritePointer(0), buffer.getWritePointer(1),
                           numSamples, ppq, hostPlaying);
