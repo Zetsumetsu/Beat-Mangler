@@ -221,6 +221,17 @@ int main(int argc, char** argv) {
               "bypass: manual snapshot drives the engine");
     }
 
+    // scramble display helpers
+    {
+        juce::Random rng(42);
+        CHECK(BeatManglerEditor::mangleWord(0.0f, rng) == "MANGLER",
+              "mangle: clean at intensity 0");
+        CHECK(BeatManglerEditor::mangleWord(1.0f, rng).length() == 7,
+              "mangle: length preserved at full intensity");
+        CHECK(BeatManglerEditor::gibberish(12, rng).length() == 12,
+              "gibberish: 12 glyphs generated");
+    }
+
     // real editor
     std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
     CHECK(ed != nullptr, "direct: editor created");
