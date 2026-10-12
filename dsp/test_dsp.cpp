@@ -304,6 +304,41 @@ int main() {
         CHECK(e.numSlices() >= 1, "parsed WAV slices");
     }
 
+    // I: host sync — slices fire in order on the PPQ grid, silent when stopped
+    {
+        Engine e;
+        e.setSampleRate(sr);
+        e.setTempo(120.0);
+        e.loadWavData(synthBreak(sr)); // 2 bars -> 32 slices
+        Params p;
+        p.chaos = 0.0f;
+        p.rate = 1.0f;
+        e.setParams(p);
+        e.reset();
+        const int bs = 512;
+        std::vector<float> l(bs), r(bs);
+        // stopped: silence
+        e.processSynced(l.data(), r.data(), bs, 0.0, false);
+        CHECK(peakOf(l) == 0.0f, "synced: silent while transport stopped");
+        // play 1 bar (4 quarters); 16th = 0.25 ppq; block = 512 samples
+        double ppq = 0.0;
+        const double ppqPerBlock = bs * (120.0 / 60.0) / sr;
+        std::vector<int> order;
+        int blocks = (int)std::ceil(4.0 / ppqPerBlock);
+        int prev = -1;
+        for (int b = 0; b < blocks; ++b) {
+            e.processSynced(l.data(), r.data(), bs, ppq, true);
+            int ls = e.lastSlice();
+            if (ls != prev) { order.push_back(ls); prev = ls; }
+            ppq += ppqPerBlock;
+        }
+        bool inOrder = order.size() >= 16;
+        for (size_t i = 0; i < order.size() && inOrder; ++i)
+            if (order[i] != (int)i % 32) inOrder = false;
+        CHECK(inOrder, "synced: chaos=0 fires slices 0,1,2,... on the grid");
+        CHECK(rmsOf(l) > 0.0f, "synced: audible while playing");
+    }
+
     printf(failures ? "\n%d FAILURES\n" : "\nALL CHECKS PASSED\n", failures);
     return failures ? 1 : 0;
 }
