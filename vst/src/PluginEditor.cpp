@@ -109,7 +109,7 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.4  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.5  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -121,6 +121,7 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     sliceInfoLabel.setJustificationType(juce::Justification::left);
     setupLabel(sliceReadout, "--", 22, kSteel);
     setupLabel(footerLabel, "garbage in, music out.", 12, kDim);
+    footerLabel.setJustificationType(juce::Justification::left);
 
     fileLabel.setText(proc.loadedFileName(), juce::dontSendNotification);
     fileLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
@@ -136,7 +137,9 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
         snapButtons[i].setClickingTogglesState(true);
         addAndMakeVisible(snapButtons[i]);
         snapButtons[i].onClick = [this, i] {
-            if (auto* param = proc.apvts.getParameter("pitchSnap"))
+            if (proc.autoBypass.load())
+                proc.manSnap.store(i);
+            else if (auto* param = proc.apvts.getParameter("pitchSnap"))
                 param->setValueNotifyingHost((float)i / 2.0f);
         };
     }
@@ -154,7 +157,10 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
         rateButtons[i].setClickingTogglesState(true);
         addAndMakeVisible(rateButtons[i]);
         rateButtons[i].onClick = [this, i] {
-            if (auto* param = proc.apvts.getParameter("rate"))
+            static constexpr float vals[4] = {0.25f, 0.5f, 1.0f, 2.0f};
+            if (proc.autoBypass.load())
+                proc.manRate.store(vals[i]);
+            else if (auto* param = proc.apvts.getParameter("rate"))
                 param->setValueNotifyingHost((float)i / 3.0f);
         };
     }
@@ -172,7 +178,9 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
         gridButtons[i].setClickingTogglesState(true);
         addAndMakeVisible(gridButtons[i]);
         gridButtons[i].onClick = [this, i] {
-            if (auto* param = proc.apvts.getParameter("grid"))
+            if (proc.autoBypass.load())
+                proc.manGrid.store(i == 1 ? 4 : 16);
+            else if (auto* param = proc.apvts.getParameter("grid"))
                 param->setValueNotifyingHost((float)i);
             // grid change requires re-slicing; reload the current file
             proc.resliceCurrentFile();
@@ -197,8 +205,35 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     };
     addAndMakeVisible(playButton);
 
+    // Automation bypass toggle: HOST = params follow the DAW (incl. any
+    // envelopes); MANUAL = engine runs on a snapshot you can tweak freely.
+    autoButton.setClickingTogglesState(true);
+    autoButton.onClick = [this] { setAutoBypass(autoButton.getToggleState(), true); };
+    addAndMakeVisible(autoButton);
+
+    // While bypassed, knob turns write the manual snapshot directly.
+    chaosKnob.onValueChange = [this] {
+        if (proc.autoBypass.load()) proc.manChaos.store((float)chaosKnob.getValue());
+    };
+    densityKnob.onValueChange = [this] {
+        if (proc.autoBypass.load()) proc.manDensity.store((float)densityKnob.getValue());
+    };
+    pitchKnob.onValueChange = [this] {
+        if (proc.autoBypass.load()) proc.manPitch.store((float)pitchKnob.getValue());
+    };
+    degradeKnob.onValueChange = [this] {
+        if (proc.autoBypass.load()) proc.manDegrade.store((float)degradeKnob.getValue());
+    };
+
     setupLabel(transportLabel, "HOST STOPPED", 11, kDim);
     transportLabel.setJustificationType(juce::Justification::left);
+
+    // If the project was saved with automation bypassed, open in that mode
+    // (keeping the restored manual values, no fresh snapshot).
+    if (proc.autoBypass.load()) {
+        autoButton.setToggleState(true, juce::dontSendNotification);
+        setAutoBypass(true, false);
+    }
 
     updateSliceInfo();
     startTimerHz(15);
@@ -244,7 +279,8 @@ void BeatManglerEditor::resized() {
     transportLabel.setBounds(36, 366, 200, 16);
     playButton.setBounds(252, 340, 130, 40);
     sliceReadout.setBounds(410, 340, 200, 40);
-    footerLabel.setBounds(24, 398, 592, 24);
+    autoButton.setBounds(472, 394, 144, 30);
+    footerLabel.setBounds(24, 398, 430, 24);
 }
 
 void BeatManglerEditor::loadFile() {
@@ -278,7 +314,42 @@ void BeatManglerEditor::updateSliceInfo() {
     sliceInfoLabel.setText(t, juce::dontSendNotification);
 }
 
+void BeatManglerEditor::setAutoBypass(bool on, bool snapshot) {
+    if (on) {
+        if (snapshot) proc.engageAutoBypass(); // else: keep restored values
+        // Detach knobs from the host-driven params so envelopes stop
+        // yanking them; they now edit the manual snapshot (onValueChange).
+        chaosAtt.reset();
+        densityAtt.reset();
+        pitchAtt.reset();
+        degradeAtt.reset();
+        chaosKnob.setValue(proc.manChaos.load(), juce::dontSendNotification);
+        densityKnob.setValue(proc.manDensity.load(), juce::dontSendNotification);
+        pitchKnob.setValue(proc.manPitch.load(), juce::dontSendNotification);
+        degradeKnob.setValue(proc.manDegrade.load(), juce::dontSendNotification);
+        autoButton.setButtonText("AUTO: MANUAL");
+    } else {
+        proc.autoBypass.store(false);
+        // Re-attach: knobs resync to the host params (and any envelopes).
+        chaosAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "chaos", chaosKnob);
+        densityAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "density", densityKnob);
+        pitchAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "pitchTrim", pitchKnob);
+        degradeAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "degradeTrim", degradeKnob);
+        autoButton.setButtonText("AUTO: HOST");
+    }
+}
+
 void BeatManglerEditor::timerCallback() {
+    // project restore: the sample (re)slices on the first audio block —
+    // if the count or filename changes under us, refresh the readouts
+    const int scNow = proc.sliceCount.load();
+    if (scNow != shownSlices_) {
+        shownSlices_ = scNow;
+        updateSliceInfo();
+    }
+    if (fileLabel.getText() != proc.loadedFileName())
+        fileLabel.setText(proc.loadedFileName(), juce::dontSendNotification);
+
     int ls = proc.lastSlice.load();
     int n = proc.sliceCount.load();
     sliceReadout.setText(n > 0 && ls >= 0
@@ -305,7 +376,22 @@ void BeatManglerEditor::timerCallback() {
                 btns[i].setToggleState(i == idx, juce::dontSendNotification);
         }
     };
-    syncSeg(snapButtons, 3, "pitchSnap");
-    syncSeg(rateButtons, 4, "rate");
-    syncSeg(gridButtons, 2, "grid");
+    if (proc.autoBypass.load()) {
+        // segmented controls follow the manual snapshot instead
+        auto setSeg = [&](juce::TextButton* btns, int count, int idx) {
+            for (int i = 0; i < count; ++i)
+                btns[i].setToggleState(i == idx, juce::dontSendNotification);
+        };
+        static constexpr float rateVals[4] = {0.25f, 0.5f, 1.0f, 2.0f};
+        int rIdx = 2;
+        for (int i = 0; i < 4; ++i)
+            if (proc.manRate.load() == rateVals[i]) rIdx = i;
+        setSeg(snapButtons, 3, proc.manSnap.load());
+        setSeg(rateButtons, 4, rIdx);
+        setSeg(gridButtons, 2, proc.manGrid.load() == 4 ? 1 : 0);
+    } else {
+        syncSeg(snapButtons, 3, "pitchSnap");
+        syncSeg(rateButtons, 4, "rate");
+        syncSeg(gridButtons, 2, "grid");
+    }
 }
