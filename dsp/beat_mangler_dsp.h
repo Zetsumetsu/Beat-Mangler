@@ -444,6 +444,8 @@ public:
     void reset(uint32_t seed = 0xBEA7u) {
         rng_.seed(seed);
         absStep_ = 0;
+        launchOffset_ = 0;
+        launch_ = Launch::Playing;
         samplesToStep_ = 1; // trigger immediately on first block
         syncActive_ = false;
         for (auto& v : voices_) v.active = false;
@@ -476,33 +478,74 @@ public:
         }
     }
 
+    // Panel gate control for synced mode (called on gate edges):
+    //  - stopNow(): silence immediately.
+    //  - armLaunch(): stay silent until the next bar line, then restart
+    //    the loop from slice 0, phase-locked to the bar grid from there.
+    enum class Launch { Playing, Stopped, Armed };
+    void stopNow() { launch_ = Launch::Stopped; }
+    void armLaunch() { launch_ = Launch::Armed; }
+    Launch launchState() const { return launch_; }
+
     // Host-synced processing: steps fire on the host's PPQ grid (scaled by
     // RATE) and the in-order slice index derives from absolute song
-    // position, so beat 1 of the song lines up with beat 1 of the loop.
-    // Silence while the transport is stopped. A position jump (seek,
-    // loop wrap) re-aligns on the next block.
+    // position (minus the launch offset), so beat 1 of the song lines up
+    // with beat 1 of the loop. Silence while the transport is stopped or
+    // the panel gate is closed. A position jump re-aligns on the next block.
     void processSynced(float* outL, float* outR, int n, double ppqStart,
                        bool transportPlaying) {
-        if (!transportPlaying) {
+        auto silence = [&] {
             for (auto& v : voices_) v.active = false;
             syncActive_ = false;
             for (int i = 0; i < n; ++i) {
                 outL[i] = 0.0f;
                 outR[i] = 0.0f;
             }
+        };
+        if (!transportPlaying || launch_ == Launch::Stopped) {
+            silence();
             return;
         }
         const double ppqPerSample = (tempo_ / 60.0) / sampleRate_;
         const double rate = params_.rate > 0.0f ? (double)params_.rate : 1.0;
         const double stepPpq = 0.25 / rate;
-        if (!syncActive_ || std::fabs(ppqStart - expectedPpq_) > stepPpq * 0.5) {
+        const double ppqEnd = ppqStart + (double)n * ppqPerSample;
+        int firstSample = 0;
+        if (launch_ == Launch::Armed) {
+            // next bar line (4 quarters) at or after ppqStart
+            const double barPpq = std::ceil(ppqStart / 4.0 - 1e-9) * 4.0;
+            if (barPpq >= ppqEnd) { // not this block: stay silent + armed
+                for (int i = 0; i < n; ++i) {
+                    outL[i] = 0.0f;
+                    outR[i] = 0.0f;
+                }
+                expectedPpq_ = ppqEnd;
+                return;
+            }
+            // silence up to the bar line, then launch from slice 0 there
+            firstSample = (int)std::ceil((barPpq - ppqStart) / ppqPerSample);
+            if (firstSample < 0) firstSample = 0;
+            if (firstSample > n) firstSample = n;
+            for (int i = 0; i < firstSample; ++i) {
+                outL[i] = 0.0f;
+                outR[i] = 0.0f;
+            }
+            const double k = barPpq / stepPpq;
+            absStep_ = (int64_t)std::llround(k);
+            launchOffset_ = absStep_;
+            nextStepPpq_ = barPpq;
+            syncActive_ = true;
+            launch_ = Launch::Playing;
+            ppqStart = barPpq; // render the remainder from the bar line
+        } else if (!syncActive_ ||
+                   std::fabs(ppqStart - expectedPpq_) > stepPpq * 0.5) {
             const double k = std::ceil(ppqStart / stepPpq - 1e-9);
             nextStepPpq_ = k * stepPpq;
             absStep_ = (int64_t)k;
             syncActive_ = true;
         }
-        for (int i = 0; i < n; ++i) {
-            const double ppqNow = ppqStart + (double)i * ppqPerSample;
+        for (int i = firstSample; i < n; ++i) {
+            const double ppqNow = ppqStart + (double)(i - firstSample) * ppqPerSample;
             while (ppqNow >= nextStepPpq_ - 1e-9) {
                 triggerStep();
                 absStep_++;
@@ -514,7 +557,7 @@ public:
             outL[i] = std::tanh(l);
             outR[i] = std::tanh(r);
         }
-        expectedPpq_ = ppqStart + (double)n * ppqPerSample;
+        expectedPpq_ = ppqStart + (double)(n - firstSample) * ppqPerSample;
     }
 
 private:
@@ -528,9 +571,10 @@ private:
         const int ns = numSlices();
         if (ns == 0) return;
         const float chaos = params_.chaos;
-        // in-order reference is the absolute step position, so ordered
-        // picks always match where the song (or free-run clock) is
-        const int ordered = (int)(((absStep_ % ns) + ns) % ns);
+        // in-order reference is the absolute step position since the last
+        // launch, so ordered picks always match where the loop should be
+        const int64_t rel = absStep_ - launchOffset_;
+        const int ordered = (int)(((rel % ns) + ns) % ns);
         int idx;
         if (chaos <= 0.0001f) {
             idx = ordered; // faithful: in order, no transforms
@@ -678,6 +722,8 @@ private:
     std::vector<Slice> slices_;
     std::vector<Voice> voices_ = std::vector<Voice>(kMaxVoices);
     int64_t absStep_ = 0;
+    int64_t launchOffset_ = 0;
+    Launch launch_ = Launch::Playing;
     int samplesToStep_ = 1;
     int lastSlice_ = -1;
     int bars_ = 0;
