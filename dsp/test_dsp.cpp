@@ -339,6 +339,54 @@ int main() {
         CHECK(rmsOf(l) > 0.0f, "synced: audible while playing");
     }
 
+    // J: quantized launch — stop, then start waits for the next bar line
+    {
+        Engine e;
+        e.setSampleRate(sr);
+        e.setTempo(120.0);
+        e.loadWavData(synthBreak(sr)); // 2 bars -> 32 slices
+        Params p;
+        p.chaos = 0.0f;
+        p.rate = 1.0f;
+        e.setParams(p);
+        e.reset();
+        const int bs = 512;
+        std::vector<float> l(bs), r(bs);
+        const double ppqPerBlock = bs * (120.0 / 60.0) / sr;
+        // gate closed: silent even though transport runs
+        e.stopNow();
+        e.processSynced(l.data(), r.data(), bs, 0.0, true);
+        CHECK(peakOf(l) == 0.0f, "launch: silent after stop");
+        // arm mid-bar (ppq 1.3): silent until the bar line at ppq 4.0
+        e.armLaunch();
+        double ppq = 1.3;
+        bool silentUntilBar = true;
+        while (ppq + ppqPerBlock <= 4.0) {
+            e.processSynced(l.data(), r.data(), bs, ppq, true);
+            if (peakOf(l) != 0.0f) silentUntilBar = false;
+            ppq += ppqPerBlock;
+        }
+        CHECK(silentUntilBar, "launch: silent while queued for the bar");
+        // block crossing ppq 4.0 launches from slice 0
+        e.processSynced(l.data(), r.data(), bs, ppq, true);
+        CHECK(e.launchState() == Engine::Launch::Playing, "launch: fires at bar line");
+        CHECK(e.lastSlice() == 0, "launch: restarts from slice 0");
+        // and continues in order from there
+        ppq += ppqPerBlock;
+        std::vector<int> order;
+        int prev = 0;
+        for (int b = 0; b < 200 && order.size() < 8; ++b) {
+            e.processSynced(l.data(), r.data(), bs, ppq, true);
+            int ls = e.lastSlice();
+            if (ls != prev) { order.push_back(ls); prev = ls; }
+            ppq += ppqPerBlock;
+        }
+        bool seq = order.size() >= 8;
+        for (size_t i = 0; i < order.size() && seq; ++i)
+            if (order[i] != (int)(i + 1)) seq = false;
+        CHECK(seq, "launch: continues 1,2,3,... after restart");
+    }
+
     printf(failures ? "\n%d FAILURES\n" : "\nALL CHECKS PASSED\n", failures);
     return failures ? 1 : 0;
 }
