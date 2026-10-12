@@ -39,6 +39,7 @@ double BeatManglerProcessor::getHostTempo() const {
 
 void BeatManglerProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/) {
     engine_.setSampleRate(sampleRate);
+    fallbackPpq_ = 0.0;
 }
 
 bool BeatManglerProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
@@ -91,19 +92,37 @@ void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const int numSamples = buffer.getNumSamples();
     buffer.clear();
 
-    // MIDI input exists so hosts accept us as an instrument; v0.2 runs on
-    // its internal transport and ignores incoming MIDI for now.
+    // MIDI input exists so hosts accept us as an instrument; incoming
+    // MIDI is ignored — the sequencer locks to the host transport.
     (void)midiMessages;
 
-    engine_.setTempo(getHostTempo());
+    // Follow the host transport: steps lock to the song's PPQ grid, so
+    // beat 1 lines up with beat 1, and we start/stop with the song.
+    bool hostPlaying = true;
+    double ppq = fallbackPpq_;
+    bool havePosition = false;
+    if (auto* ph = getPlayHead()) {
+        if (auto pos = ph->getPosition()) {
+            havePosition = true;
+            hostPlaying = pos->getIsPlaying();
+            ppq = pos->getPpqPosition().orFallback(0.0);
+            engine_.setTempo(pos->getBpm().orFallback(120.0));
+        }
+    }
+    if (!havePosition) {
+        // No transport info (some hosts/tools): free-run so it still
+        // makes sound, advancing our own PPQ at the current tempo.
+        const double sr = getSampleRate() > 0.0 ? getSampleRate() : 48000.0;
+        fallbackPpq_ += (double)numSamples * (engine_.tempo() / 60.0) / sr;
+    }
+    transportPlaying.store(hostPlaying);
 
-    if (!playing.load() || engine_.numSlices() == 0)
+    if (engine_.numSlices() == 0)
         return;
 
     engine_.setParams(currentParams());
-
-    // engine renders stereo; our bus layout is stereo-only
-    engine_.process(buffer.getWritePointer(0), buffer.getWritePointer(1), numSamples);
+    engine_.processSynced(buffer.getWritePointer(0), buffer.getWritePointer(1),
+                          numSamples, ppq, hostPlaying);
     lastSlice.store(engine_.lastSlice());
 }
 
