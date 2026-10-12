@@ -33,6 +33,8 @@ private:
     void timerCallback() override;
     void loadFile();
     void updateSliceInfo();
+    void setAutoBypass(bool on, bool snapshot);
+    int shownSlices_ = -2;
 
     BeatManglerProcessor& proc;
     ManglerLookAndFeel laf;
@@ -42,7 +44,7 @@ private:
         gridLabel;
     juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel, sliceReadout,
         footerLabel, transportLabel;
-    juce::TextButton loadButton{"LOAD"}, playButton{"STOP"};
+    juce::TextButton loadButton{"LOAD"}, playButton{"STOP"}, autoButton{"AUTO: HOST"};
     juce::TextButton snapButtons[3];
     juce::TextButton rateButtons[4];
     juce::TextButton gridButtons[2];
