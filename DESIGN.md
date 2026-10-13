@@ -1,10 +1,10 @@
-# Beat Mangler — design brief
+# Break Mangler — design brief
 
 Working design document. Status: brainstorming — no build commitment yet.
 
 ## Concept
 
-A generative re-composer for the Daisy Patch, IDM territory (Aphex/Autechre/Plaid), NOT a manual sampler. Breaks — or any beat, or any sample including a bar of vocals — load from SD; the module auto-slices by transient detection, then probabilistically re-sequences slices with per-slice pitch, reverse, stutter, and retrigger. One-knob order-to-chaos macro: at zero it plays the source faithfully, turned up it goes full Autechre.
+A generative re-composer for the Daisy Patch, IDM territory (Aphex/Autechre/Plaid), NOT a manual sampler. Breaks load from SD; the module auto-slices by transient detection, then probabilistically re-sequences slices with per-slice pitch, reverse, stutter, and retrigger. One-knob order-to-chaos macro: at zero it plays the source faithfully, turned up it goes full Autechre.
 
 ## Key design constraints
 
@@ -34,6 +34,15 @@ VST-first prototype in Ableton, with the Daisy Patch firmware developed in tande
 
 Yes, the Daisy Patch can do all of this — SD slot, 64MB SDRAM for buffers, 480MHz M7 for detection/resequencing/DSP, 4 knobs + 4 CVs + gates + encoder/OLED + 16-LED grid for the interface.
 
-## Meat Bangler
+## Decisions locked (2026-10-10, revised 2026-10-12)
 
-Hold the encoder on boot to unlock Meat Bangler mode — the feral twin hiding inside Beat Mangler. Where Beat Mangler stays usable in an IDM sense, Meat Bangler is pure chaos: experimental noise that can be shaped and softened into delicate pitched drones. Same engine, past the edge.
+- Break Mangler is a breaks-dedicated instrument: hyperfocused on being the
+  best generative break re-composer, not a general sample mangler.
+- Meat Bangler is a separate future instrument, shelved for now.
+  See `docs/MEAT_BANGLER_PARKED.md` for its design notes.
+- Architecture approved: one-knob chaos macro drives all probabilities + the per-slice voice.
+- Pitch: musical first. Quantized default, with a switch for semitone snap, scale snap, or continuous glide. (Final pitch behavior is tentative — to be worked through together.)
+- VST prototype: minimal first (load + auto-slice + chaos macro + play); fuller parameter set later.
+- Knob mapping: CHAOS central + DENSITY/PITCH/DEGRADE trims, approved for now.
+- Ring modulation + spectral noise: parked for the fuller-parameter round as Aphex-style seasoning in the voice chain; must earn its place by making breaks better.
+- Efficiency mandate: leaner is better, no crashing systems. Prefer efficient approximations that achieve similar results; extras only if the computing budget allows.
