@@ -1,6 +1,6 @@
 name: Build VST3 (Windows)
 
-# Builds the Beat Mangler VST3 on a Microsoft-hosted Windows runner and
+# Builds the Break Mangler VST3 on a Microsoft-hosted Windows runner and
 # uploads the finished plugin bundle as a downloadable artifact.
 # Trigger: any push touching vst/, dsp/, or this workflow, or manual run.
 
@@ -29,5 +29,5 @@ jobs:
       - name: Upload VST3 bundle
         uses: actions/upload-artifact@v6
         with:
-          name: Beat-Mangler-VST3-windows
-          path: build/BeatManglerVST_artefacts/Release/VST3/Beat Mangler.vst3
+          name: Break-Mangler-VST3-windows
+          path: build/BreakManglerVST_artefacts/Release/VST3/Break Mangler.vst3
