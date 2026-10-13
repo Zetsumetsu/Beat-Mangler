@@ -1,14 +1,14 @@
-// Headless smoke test for the Beat Mangler VST3.
+// Headless smoke test for the Break Mangler VST3.
 //
 // Two phases:
 //  1. Bundle phase: load the built .vst3, instantiate, verify identity,
 //     parameters, and that silence-with-no-file is finite.
-//  2. Direct phase: instantiate BeatManglerProcessor in-process, load a
+//  2. Direct phase: instantiate BreakManglerProcessor in-process, load a
 //     real WAV through the file path, render audio at two chaos settings,
 //     verify it is sane, then create the REAL editor, paint it, and check
 //     the result is non-blank.
 //
-// Usage: BeatManglerSmokeTest <path-to-.vst3>
+// Usage: BreakManglerSmokeTest <path-to-.vst3>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <cstdio>
 #include <cmath>
@@ -112,7 +112,7 @@ static float peakBuf(juce::AudioBuffer<float>& buf) {
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::printf("usage: BeatManglerSmokeTest <path-to-.vst3>\n");
+        std::printf("usage: BreakManglerSmokeTest <path-to-.vst3>\n");
         return 2;
     }
     juce::ScopedJuceInitialiser_GUI guiInit;
@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
             format.createInstanceFromDescription(*descs[0], 48000.0, 512, err));
         CHECK(inst != nullptr, "bundle: instantiate");
         if (!inst) return 1;
-        CHECK(inst->getName() == "Beat Mangler", "bundle: name is Beat Mangler");
+        CHECK(inst->getName() == "Break Mangler", "bundle: name is Break Mangler");
         // 7 of ours + host-added Bypass (+ possible MIDI-related params)
         CHECK(inst->getParameters().size() >= 8, "bundle: params present");
         CHECK(inst->acceptsMidi(), "bundle: accepts MIDI (Ableton requires it)");
@@ -142,10 +142,10 @@ int main(int argc, char** argv) {
     }
 
     // ---- phase 2: direct processor + real editor ----
-    const char* wavPath = "/tmp/bm_test_break.wav";
+    const char* wavPath = "/tmp/brk_test_break.wav";
     writeTestBreak(wavPath);
 
-    BeatManglerProcessor proc;
+    BreakManglerProcessor proc;
     proc.prepareToPlay(48000.0, 512);
 
     juce::AudioBuffer<float> buf(2, 512);
@@ -194,7 +194,7 @@ int main(int argc, char** argv) {
         juce::MemoryBlock state;
         proc.getStateInformation(state);
         CHECK(state.getSize() > 1000, "state: embeds the sample");
-        BeatManglerProcessor proc2;
+        BreakManglerProcessor proc2;
         proc2.prepareToPlay(48000.0, 512);
         proc2.setStateInformation(state.getData(), (int)state.getSize());
         juce::AudioBuffer<float> buf2(2, 512);
@@ -224,11 +224,11 @@ int main(int argc, char** argv) {
     // scramble display helpers
     {
         juce::Random rng(42);
-        CHECK(BeatManglerEditor::mangleWord(0.0f, rng) == "MANGLER",
+        CHECK(BreakManglerEditor::mangleWord(0.0f, rng) == "MANGLER",
               "mangle: clean at intensity 0");
-        CHECK(BeatManglerEditor::mangleWord(1.0f, rng).length() == 7,
+        CHECK(BreakManglerEditor::mangleWord(1.0f, rng).length() == 7,
               "mangle: length preserved at full intensity");
-        CHECK(BeatManglerEditor::gibberish(12, rng).length() == 12,
+        CHECK(BreakManglerEditor::gibberish(12, rng).length() == 12,
               "gibberish: 12 glyphs generated");
     }
 
