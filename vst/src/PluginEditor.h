@@ -20,11 +20,11 @@ public:
     juce::Colour accentFor(juce::Component& c);
 };
 
-class BeatManglerEditor : public juce::AudioProcessorEditor,
+class BreakManglerEditor : public juce::AudioProcessorEditor,
                            private juce::Timer {
 public:
-    explicit BeatManglerEditor(BeatManglerProcessor&);
-    ~BeatManglerEditor() override = default;
+    explicit BreakManglerEditor(BreakManglerProcessor&);
+    ~BreakManglerEditor() override = default;
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -48,7 +48,7 @@ private:
     juce::String gibberishShown_ = "--";
     int lastSliceSeen_ = -1;
 
-    BeatManglerProcessor& proc;
+    BreakManglerProcessor& proc;
     ManglerLookAndFeel laf;
 
     juce::Slider chaosKnob, densityKnob, pitchKnob, degradeKnob;
@@ -64,5 +64,5 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> chaosAtt,
         densityAtt, pitchAtt, degradeAtt;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatManglerEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BreakManglerEditor)
 };

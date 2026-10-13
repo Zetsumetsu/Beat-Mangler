@@ -68,7 +68,7 @@ void ManglerLookAndFeel::drawButtonBackground(
     }
 }
 
-BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
+BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     : AudioProcessorEditor(p), proc(p) {
     setLookAndFeel(&laf);
     setSize(640, 440);
@@ -104,12 +104,12 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
         l.setJustificationType(juce::Justification::centred);
         addAndMakeVisible(l);
     };
-    titleLabel.setText("BEAT MANGLER", juce::dontSendNotification);
+    titleLabel.setText("BREAK MANGLER", juce::dontSendNotification);
     titleLabel.setFont(juce::Font(juce::FontOptions(30.0f, juce::Font::bold)));
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.6  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.7  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -239,7 +239,7 @@ BeatManglerEditor::BeatManglerEditor(BeatManglerProcessor& p)
     startTimerHz(15);
 }
 
-void BeatManglerEditor::paint(juce::Graphics& g) {
+void BreakManglerEditor::paint(juce::Graphics& g) {
     g.fillAll(kBg);
     // title bar strip
     g.setColour(kPanel);
@@ -251,7 +251,7 @@ void BeatManglerEditor::paint(juce::Graphics& g) {
     g.fillRect(0, 268, getWidth(), 1);
 }
 
-void BeatManglerEditor::resized() {
+void BreakManglerEditor::resized() {
     titleLabel.setBounds(24, 12, 400, 40);
     subLabel.setBounds(400, 24, 216, 20);
     chaosKnob.setBounds(36, 92, 150, 150);
@@ -283,7 +283,7 @@ void BeatManglerEditor::resized() {
     footerLabel.setBounds(24, 398, 430, 24);
 }
 
-void BeatManglerEditor::loadFile() {
+void BreakManglerEditor::loadFile() {
     auto chooser = std::make_shared<juce::FileChooser>(
         "Load a break, beat, or any sample", juce::File(),
         "*.wav;*.aif;*.aiff;*.flac;*.mp3");
@@ -304,7 +304,7 @@ void BeatManglerEditor::loadFile() {
                          });
 }
 
-void BeatManglerEditor::updateSliceInfo() {
+void BreakManglerEditor::updateSliceInfo() {
     int n = proc.sliceCount.load();
     int bars = proc.barsCount.load();
     juce::String t;
@@ -314,7 +314,7 @@ void BeatManglerEditor::updateSliceInfo() {
     sliceInfoLabel.setText(t, juce::dontSendNotification);
 }
 
-void BeatManglerEditor::setAutoBypass(bool on, bool snapshot) {
+void BreakManglerEditor::setAutoBypass(bool on, bool snapshot) {
     if (on) {
         if (snapshot) proc.engageAutoBypass(); // else: keep restored values
         // Detach knobs from the host-driven params so envelopes stop
@@ -339,7 +339,7 @@ void BeatManglerEditor::setAutoBypass(bool on, bool snapshot) {
     }
 }
 
-juce::String BeatManglerEditor::mangleWord(float intensity, juce::Random& rng) {
+juce::String BreakManglerEditor::mangleWord(float intensity, juce::Random& rng) {
     static const char truth[8] = "MANGLER";
     static const char glyphs[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&@$?!*+=";
     const int ng = (int)sizeof(glyphs) - 1;
@@ -350,7 +350,7 @@ juce::String BeatManglerEditor::mangleWord(float intensity, juce::Random& rng) {
     return juce::String(out);
 }
 
-juce::String BeatManglerEditor::gibberish(int len, juce::Random& rng) {
+juce::String BreakManglerEditor::gibberish(int len, juce::Random& rng) {
     static const juce::String tokens[] = {
         "A", "B", "E", "H", "K", "M", "N", "R", "T", "X", "Z",
         "0", "1", "3", "4", "7", "8",
@@ -366,7 +366,7 @@ juce::String BeatManglerEditor::gibberish(int len, juce::Random& rng) {
     return s;
 }
 
-void BeatManglerEditor::timerCallback() {
+void BreakManglerEditor::timerCallback() {
     // project restore: the sample (re)slices on the first audio block —
     // if the count or filename changes under us, refresh the readouts
     const int scNow = proc.sliceCount.load();
@@ -413,7 +413,7 @@ void BeatManglerEditor::timerCallback() {
             gibberishShown_ = "--";
         }
         lastSliceSeen_ = ls;
-        titleLabel.setText("BEAT " + juce::String(manglerShown_),
+        titleLabel.setText("BREAK " + juce::String(manglerShown_),
                            juce::dontSendNotification);
         sliceReadout.setText(gibberishShown_, juce::dontSendNotification);
     }

@@ -2,14 +2,14 @@
 #include "PluginEditor.h"
 #include <cstring>
 
-BeatManglerProcessor::BeatManglerProcessor()
+BreakManglerProcessor::BreakManglerProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output",
                                                   juce::AudioChannelSet::stereo(),
                                                   true)),
-      apvts(*this, nullptr, "BeatManglerParams", createParameterLayout()) {}
+      apvts(*this, nullptr, "BreakManglerParams", createParameterLayout()) {}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
-BeatManglerProcessor::createParameterLayout() {
+BreakManglerProcessor::createParameterLayout() {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "chaos", "Chaos", 0.0f, 1.0f, 0.0f));
@@ -31,23 +31,23 @@ BeatManglerProcessor::createParameterLayout() {
     return {params.begin(), params.end()};
 }
 
-double BeatManglerProcessor::getHostTempo() const {
+double BreakManglerProcessor::getHostTempo() const {
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
             return pos->getBpm().orFallback(120.0);
     return 120.0;
 }
 
-void BeatManglerProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/) {
+void BreakManglerProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/) {
     engine_.setSampleRate(sampleRate);
     fallbackPpq_ = 0.0;
 }
 
-bool BeatManglerProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
+bool BreakManglerProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
     return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
 }
 
-bool BeatManglerProcessor::performLoad(double tempo) {
+bool BreakManglerProcessor::performLoad(double tempo) {
     if (loadedData_.getSize() < 44)
         return false;
     // Fresh params + tempo so bar detection sees the current grid.
@@ -62,7 +62,7 @@ bool BeatManglerProcessor::performLoad(double tempo) {
     return ok;
 }
 
-bool BeatManglerProcessor::loadAudioFile(const juce::File& file) {
+bool BreakManglerProcessor::loadAudioFile(const juce::File& file) {
     juce::MemoryBlock data;
     if (!file.loadFileAsData(data) || data.getSize() < 44)
         return false;
@@ -77,7 +77,7 @@ bool BeatManglerProcessor::loadAudioFile(const juce::File& file) {
     return ok;
 }
 
-bool BeatManglerProcessor::resliceCurrentFile() {
+bool BreakManglerProcessor::resliceCurrentFile() {
     if (loadedData_.getSize() < 44) return false;
     suspendProcessing(true);
     const bool ok = performLoad(getHostTempo());
@@ -85,9 +85,9 @@ bool BeatManglerProcessor::resliceCurrentFile() {
     return ok;
 }
 
-beatmangler::Params BeatManglerProcessor::currentParams() const {
+breakmangler::Params BreakManglerProcessor::currentParams() const {
     static constexpr float rateVals[4] = {0.25f, 0.5f, 1.0f, 2.0f};
-    beatmangler::Params p;
+    breakmangler::Params p;
     p.chaos = apvts.getRawParameterValue("chaos")->load();
     p.density = apvts.getRawParameterValue("density")->load();
     p.pitchTrim = apvts.getRawParameterValue("pitchTrim")->load();
@@ -96,12 +96,12 @@ beatmangler::Params BeatManglerProcessor::currentParams() const {
     p.rate = rateVals[juce::jlimit(0, 3, rateIdx)];
     const int gridIdx = (int)apvts.getRawParameterValue("grid")->load();
     p.gridDiv = (gridIdx == 1) ? 4 : 16;
-    p.pitchSnap = (beatmangler::PitchSnap)(int)apvts.getRawParameterValue("pitchSnap")->load();
+    p.pitchSnap = (breakmangler::PitchSnap)(int)apvts.getRawParameterValue("pitchSnap")->load();
     return p;
 }
 
-void BeatManglerProcessor::engageAutoBypass() {
-    const beatmangler::Params p = currentParams();
+void BreakManglerProcessor::engageAutoBypass() {
+    const breakmangler::Params p = currentParams();
     manChaos.store(p.chaos);
     manDensity.store(p.density);
     manPitch.store(p.pitchTrim);
@@ -112,23 +112,23 @@ void BeatManglerProcessor::engageAutoBypass() {
     autoBypass.store(true);
 }
 
-beatmangler::Params BeatManglerProcessor::manualParams() const {
-    beatmangler::Params p;
+breakmangler::Params BreakManglerProcessor::manualParams() const {
+    breakmangler::Params p;
     p.chaos = manChaos.load();
     p.density = manDensity.load();
     p.pitchTrim = manPitch.load();
     p.degradeTrim = manDegrade.load();
     p.rate = manRate.load();
     p.gridDiv = manGrid.load();
-    p.pitchSnap = (beatmangler::PitchSnap)manSnap.load();
+    p.pitchSnap = (breakmangler::PitchSnap)manSnap.load();
     return p;
 }
 
-beatmangler::Params BeatManglerProcessor::effectiveParams() const {
+breakmangler::Params BreakManglerProcessor::effectiveParams() const {
     return autoBypass.load() ? manualParams() : currentParams();
 }
 
-void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
+void BreakManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                         juce::MidiBuffer& midiMessages) {
     juce::ScopedNoDenormals noDenormals;
     const int numSamples = buffer.getNumSamples();
@@ -179,7 +179,7 @@ void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     else if (!lastGate_)
         engine_.armLaunch();
     lastGate_ = g;
-    launchArmed.store(engine_.launchState() == beatmangler::Engine::Launch::Armed);
+    launchArmed.store(engine_.launchState() == breakmangler::Engine::Launch::Armed);
 
     engine_.setParams(effectiveParams());
     engine_.processSynced(buffer.getWritePointer(0), buffer.getWritePointer(1),
@@ -187,7 +187,7 @@ void BeatManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     lastSlice.store(engine_.lastSlice());
 }
 
-void BeatManglerProcessor::getStateInformation(juce::MemoryBlock& destData) {
+void BreakManglerProcessor::getStateInformation(juce::MemoryBlock& destData) {
     auto xml = apvts.copyState().createXml();
     if (xml == nullptr)
         return;
@@ -214,7 +214,7 @@ void BeatManglerProcessor::getStateInformation(juce::MemoryBlock& destData) {
         os.write(loadedData_.getData(), loadedData_.getSize());
 }
 
-void BeatManglerProcessor::setStateInformation(const void* data, int sizeInBytes) {
+void BreakManglerProcessor::setStateInformation(const void* data, int sizeInBytes) {
     if (sizeInBytes >= 4 && std::memcmp(data, "BMS1", 4) == 0) {
         juce::MemoryInputStream is(data, (size_t)sizeInBytes, false);
         is.setPosition(4);
@@ -256,10 +256,10 @@ void BeatManglerProcessor::setStateInformation(const void* data, int sizeInBytes
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
 }
 
-juce::AudioProcessorEditor* BeatManglerProcessor::createEditor() {
-    return new BeatManglerEditor(*this);
+juce::AudioProcessorEditor* BreakManglerProcessor::createEditor() {
+    return new BreakManglerEditor(*this);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
-    return new BeatManglerProcessor();
+    return new BreakManglerProcessor();
 }

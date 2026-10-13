@@ -2,16 +2,16 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <atomic>
-#include "beat_mangler_dsp.h"
+#include "break_mangler_dsp.h"
 
-// Beat Mangler VST3 — minimal prototype.
+// Break Mangler VST3 — minimal prototype.
 // Wraps the portable DSP core (same engine as the future Daisy firmware):
 // load a WAV, it auto-slices, the chaos macro re-sequences it live.
 
-class BeatManglerProcessor : public juce::AudioProcessor {
+class BreakManglerProcessor : public juce::AudioProcessor {
 public:
-    BeatManglerProcessor();
-    ~BeatManglerProcessor() override = default;
+    BreakManglerProcessor();
+    ~BreakManglerProcessor() override = default;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -21,7 +21,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "Beat Mangler"; }
+    const juce::String getName() const override { return "Break Mangler"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -52,8 +52,8 @@ public:
         manDegrade{0.5f}, manRate{1.0f};
     std::atomic<int> manGrid{16}, manSnap{1};
     void engageAutoBypass(); // snapshot current params into the manual set
-    beatmangler::Params manualParams() const;
-    beatmangler::Params effectiveParams() const; // manual if bypassed
+    breakmangler::Params manualParams() const;
+    breakmangler::Params effectiveParams() const; // manual if bypassed
     std::atomic<int> sliceCount{0};
     std::atomic<int> barsCount{0};
     std::atomic<int> lastSlice{-1};
@@ -65,12 +65,12 @@ public:
     bool resliceCurrentFile(); // re-slice loaded file (e.g. grid changed)
     juce::String loadedFileName() const { return loadedFileName_; }
     double getHostTempo() const;
-    beatmangler::Params currentParams() const;
+    breakmangler::Params currentParams() const;
 
 private:
     // Slice the stashed file bytes into the engine at the given tempo.
     bool performLoad(double tempo);
-    beatmangler::Engine engine_;
+    breakmangler::Engine engine_;
     juce::String loadedFileName_ = "no file loaded";
     juce::File loadedFile_;
     juce::MemoryBlock loadedData_; // raw bytes of the loaded file (for state)
@@ -78,5 +78,5 @@ private:
     double fallbackPpq_ = 0.0; // free-run position when host gives none
     bool lastGate_ = true;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatManglerProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BreakManglerProcessor)
 };
