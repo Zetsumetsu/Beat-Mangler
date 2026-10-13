@@ -1,0 +1,33 @@
+name: Build VST3 (Windows)
+
+# Builds the Break Mangler VST3 on a Microsoft-hosted Windows runner and
+# uploads the finished plugin bundle as a downloadable artifact.
+# Trigger: any push touching vst/, dsp/, or this workflow, or manual run.
+
+on:
+  push:
+    paths:
+      - 'vst/**'
+      - 'dsp/**'
+      - '.github/workflows/build-vst3-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build-vst3:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v5
+
+      - name: Configure (CMake)
+        run: cmake -B build -S vst -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build VST3
+        run: cmake --build build --config Release
+
+      - name: Upload VST3 bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: Break-Mangler-VST3-windows
+          path: build/BreakManglerVST_artefacts/Release/VST3/Break Mangler.vst3
