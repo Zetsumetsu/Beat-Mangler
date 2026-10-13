@@ -1,16 +1,16 @@
-// Host test for the Beat Mangler DSP core.
+// Host test for the Break Mangler DSP core.
 // Builds a synthetic break, runs loader/slicer/sequencer/voice, checks
 // invariants, and writes WAV renders for ear-checking.
 // Compile: g++ -std=c++17 -O2 -Wall -o test_dsp test_dsp.cpp && ./test_dsp
 
-#include "beat_mangler_dsp.h"
+#include "break_mangler_dsp.h"
 
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include <string>
 
-using namespace beatmangler;
+using namespace breakmangler;
 
 static int failures = 0;
 #define CHECK(cond, msg) do { \
