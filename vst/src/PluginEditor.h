@@ -20,6 +20,28 @@ public:
     juce::Colour accentFor(juce::Component& c);
 };
 
+// Waveform screen: replaces the old gibberish slice readout. Shows the
+// loaded loop on its slice grid; the currently sounding slice glows and a
+// playhead line sweeps the bar grid. The waveform image is rendered once
+// per snapshot; only the overlays repaint on the timer.
+class WaveformDisplay : public juce::Component, private juce::Timer {
+public:
+    WaveformDisplay();
+    void setSnapshot(std::shared_ptr<const BreakManglerProcessor::WaveSnapshot> snap);
+    void setPlayState(int step, int totalSteps, int activeSlice, bool rolling);
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+private:
+    void timerCallback() override;
+    void rebuildImage();
+
+    std::shared_ptr<const BreakManglerProcessor::WaveSnapshot> snap_;
+    juce::Image waveImage_;
+    int step_ = 0, totalSteps_ = 0, activeSlice_ = -1;
+    bool rolling_ = false, dirty_ = true;
+};
+
 class BreakManglerEditor : public juce::AudioProcessorEditor,
                            private juce::Timer {
 public:
@@ -40,21 +62,20 @@ public:
     // Display scramble: the title mangles itself while the engine plays.
     // intensity 0 = the true word, 1 = full gibberish (length preserved).
     static juce::String mangleWord(float intensity, juce::Random& rng);
-    static juce::String gibberish(int len, juce::Random& rng);
 
 private:
     juce::Random rng_;
     std::string manglerShown_ = "MANGLER"; // current (possibly scrambled) title word
-    juce::String gibberishShown_ = "--";
     int lastSliceSeen_ = -1;
 
     BreakManglerProcessor& proc;
     ManglerLookAndFeel laf;
+    WaveformDisplay waveform;
 
     juce::Slider chaosKnob, densityKnob, pitchKnob, degradeKnob;
     juce::Label chaosLabel, densityLabel, pitchLabel, degradeLabel, rateLabel,
         gridLabel;
-    juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel, sliceReadout,
+    juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel,
         footerLabel, transportLabel;
     juce::TextButton loadButton{"LOAD"}, playButton{"STOP"}, autoButton{"AUTO: HOST"};
     juce::TextButton snapButtons[3];

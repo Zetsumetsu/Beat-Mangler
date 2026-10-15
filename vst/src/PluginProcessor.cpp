@@ -58,8 +58,49 @@ bool BreakManglerProcessor::performLoad(double tempo) {
     if (ok) {
         sliceCount.store(engine_.numSlices());
         barsCount.store(engine_.numBars());
+        publishWaveSnapshot();
     }
     return ok;
+}
+
+void BreakManglerProcessor::publishWaveSnapshot() {
+    auto snap = std::make_shared<WaveSnapshot>();
+    const auto& l = engine_.waveL();
+    const auto& r = engine_.waveR();
+    const size_t n = l.size();
+    snap->totalSamples = (int)n;
+    snap->bars = engine_.numBars();
+    snap->mins.assign((size_t)WaveSnapshot::kColumns, 0.0f);
+    snap->maxs.assign((size_t)WaveSnapshot::kColumns, 0.0f);
+    if (n > 0) {
+        for (int c = 0; c < WaveSnapshot::kColumns; ++c) {
+            const size_t s0 = (size_t)c * n / (size_t)WaveSnapshot::kColumns;
+            const size_t s1 = (size_t)(c + 1) * n / (size_t)WaveSnapshot::kColumns;
+            float mn = 0.0f, mx = 0.0f;
+            for (size_t i = s0; i < s1 && i < n; ++i) {
+                const float lo = std::min(l[i], r[i]);
+                const float hi = std::max(l[i], r[i]);
+                if (lo < mn) mn = lo;
+                if (hi > mx) mx = hi;
+            }
+            snap->mins[(size_t)c] = mn;
+            snap->maxs[(size_t)c] = mx;
+        }
+        const int ns = engine_.numSlices();
+        snap->sliceBounds.reserve((size_t)ns);
+        for (int i = 0; i < ns; ++i) {
+            const auto& s = engine_.slice(i);
+            snap->sliceBounds.emplace_back(s.start, s.end);
+        }
+    }
+    const juce::ScopedLock lock(waveSnapshotLock_);
+    waveSnapshot_ = snap;
+}
+
+std::shared_ptr<const BreakManglerProcessor::WaveSnapshot>
+BreakManglerProcessor::waveSnapshot() {
+    const juce::ScopedLock lock(waveSnapshotLock_);
+    return waveSnapshot_;
 }
 
 bool BreakManglerProcessor::loadAudioFile(const juce::File& file) {
@@ -185,6 +226,7 @@ void BreakManglerProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     engine_.processSynced(buffer.getWritePointer(0), buffer.getWritePointer(1),
                           numSamples, ppq, hostPlaying);
     lastSlice.store(engine_.lastSlice());
+    playheadStep.store(engine_.loopStep());
 }
 
 void BreakManglerProcessor::getStateInformation(juce::MemoryBlock& destData) {

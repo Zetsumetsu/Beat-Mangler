@@ -68,6 +68,124 @@ void ManglerLookAndFeel::drawButtonBackground(
     }
 }
 
+// --- WaveformDisplay -------------------------------------------------------
+WaveformDisplay::WaveformDisplay() { startTimerHz(30); }
+
+void WaveformDisplay::setSnapshot(
+    std::shared_ptr<const BreakManglerProcessor::WaveSnapshot> snap) {
+    if (snap != snap_) {
+        snap_ = snap;
+        rebuildImage();
+        dirty_ = true;
+    }
+}
+
+void WaveformDisplay::setPlayState(int step, int totalSteps, int activeSlice,
+                                   bool rolling) {
+    if (step != step_ || totalSteps != totalSteps_ ||
+        activeSlice != activeSlice_ || rolling != rolling_) {
+        step_ = step;
+        totalSteps_ = totalSteps;
+        activeSlice_ = activeSlice;
+        rolling_ = rolling;
+        dirty_ = true;
+    }
+}
+
+void WaveformDisplay::resized() {
+    rebuildImage();
+    dirty_ = true;
+}
+
+void WaveformDisplay::timerCallback() {
+    if (rolling_ || dirty_) {
+        dirty_ = false;
+        repaint();
+    }
+}
+
+void WaveformDisplay::rebuildImage() {
+    const int W = juce::jmax(32, getWidth());
+    const int H = juce::jmax(16, getHeight());
+    waveImage_ = juce::Image(juce::Image::ARGB, W, H, true);
+    juce::Graphics g(waveImage_);
+    if (!snap_ || snap_->totalSamples <= 0 ||
+        snap_->mins.size() != snap_->maxs.size()) {
+        return; // placeholder text is drawn in paint()
+    }
+    const int cols = (int)snap_->mins.size();
+    const float mid = H * 0.5f;
+    const float amp = H * 0.46f;
+    g.setColour(juce::Colour(0xff9aa0a8)); // steel waveform
+    for (int x = 0; x < W; ++x) {
+        const int c = juce::jmin(cols - 1, (x * cols) / W);
+        const float y1 = mid - snap_->maxs[(size_t)c] * amp;
+        const float y2 = mid - snap_->mins[(size_t)c] * amp;
+        g.drawLine((float)x, y1, (float)x, juce::jmax(y1 + 1.0f, y2), 1.0f);
+    }
+    // faint center line
+    g.setColour(juce::Colour(0x22ffffff));
+    g.drawLine(0.0f, mid, (float)W, mid, 1.0f);
+}
+
+void WaveformDisplay::paint(juce::Graphics& g) {
+    const auto bounds = getLocalBounds().toFloat();
+    const float W = bounds.getWidth(), H = bounds.getHeight();
+    g.setColour(juce::Colour(0xff101014));
+    g.fillRoundedRectangle(bounds, 4.0f);
+    g.setColour(juce::Colour(0xff2a2a30));
+    g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+
+    if (!snap_ || snap_->totalSamples <= 0 ||
+        snap_->sliceBounds.empty()) {
+        g.setColour(juce::Colour(0xff7a7a84));
+        g.setFont(juce::Font(juce::FontOptions(11.0f)));
+        g.drawText("load a break", bounds,
+                   juce::Justification::centred, false);
+        return;
+    }
+    g.drawImage(waveImage_, bounds);
+
+    const double total = (double)snap_->totalSamples;
+    const int ns = (int)snap_->sliceBounds.size();
+    // slice grid lines
+    g.setColour(juce::Colour(0xff2e2e35));
+    for (const auto& b : snap_->sliceBounds) {
+        const float x = (float)(b.first / total) * W;
+        g.drawLine(x, 0.0f, x, H, 1.0f);
+    }
+    // bar lines: a brighter line every bar's worth of slices
+    if (snap_->bars > 0 && ns >= snap_->bars) {
+        const int per = ns / snap_->bars;
+        g.setColour(juce::Colour(0xff4a4a55));
+        for (int i = 0; i <= snap_->bars; ++i) {
+            const int si = juce::jmin(ns - 1, i * per);
+            const float x = (float)(snap_->sliceBounds[(size_t)si].first / total) * W;
+            g.drawLine(x, 0.0f, x, H, 1.0f);
+        }
+    }
+    // glowing active slice
+    if (rolling_ && activeSlice_ >= 0 && activeSlice_ < ns) {
+        const auto& b = snap_->sliceBounds[(size_t)activeSlice_];
+        const float x0 = (float)(b.first / total) * W;
+        const float x1 = (float)(b.second / total) * W;
+        juce::Rectangle<float> r(x0, 0.0f, juce::jmax(2.0f, x1 - x0), H);
+        g.setColour(juce::Colour(0x30ff3b30));
+        g.fillRect(r.expanded(3.0f, 0.0f));
+        g.setColour(juce::Colour(0x66ff3b30));
+        g.fillRect(r);
+        g.setColour(juce::Colour(0xffff3b30));
+        g.drawRect(r, 1.5f);
+    }
+    // playhead: linear position across the bar grid
+    if (rolling_ && totalSteps_ > 0) {
+        const float x =
+            juce::jlimit(0.0f, W - 1.0f, (float)step_ / (float)totalSteps_ * W);
+        g.setColour(juce::Colour(0xffff3b30));
+        g.drawLine(x, 0.0f, x, H, 2.0f);
+    }
+}
+
 BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     : AudioProcessorEditor(p), proc(p) {
     setLookAndFeel(&laf);
@@ -109,7 +227,7 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.7  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.8  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -119,9 +237,9 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     setupLabel(gridLabel, "GRID", 11);
     setupLabel(sliceInfoLabel, "no file loaded", 12, kDim);
     sliceInfoLabel.setJustificationType(juce::Justification::left);
-    setupLabel(sliceReadout, "--", 22, kSteel);
     setupLabel(footerLabel, "garbage in, music out.", 12, kDim);
     footerLabel.setJustificationType(juce::Justification::left);
+    addAndMakeVisible(waveform);
 
     fileLabel.setText(proc.loadedFileName(), juce::dontSendNotification);
     fileLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
@@ -278,9 +396,9 @@ void BreakManglerEditor::resized() {
     sliceInfoLabel.setBounds(36, 340, 200, 20);
     transportLabel.setBounds(36, 366, 200, 16);
     playButton.setBounds(252, 340, 130, 40);
-    sliceReadout.setBounds(410, 340, 200, 40);
-    autoButton.setBounds(472, 394, 144, 30);
-    footerLabel.setBounds(24, 398, 430, 24);
+    waveform.setBounds(392, 336, 224, 88);
+    autoButton.setBounds(252, 392, 130, 30);
+    footerLabel.setBounds(24, 398, 216, 24);
 }
 
 void BreakManglerEditor::loadFile() {
@@ -350,22 +468,6 @@ juce::String BreakManglerEditor::mangleWord(float intensity, juce::Random& rng) 
     return juce::String(out);
 }
 
-juce::String BreakManglerEditor::gibberish(int len, juce::Random& rng) {
-    static const juce::String tokens[] = {
-        "A", "B", "E", "H", "K", "M", "N", "R", "T", "X", "Z",
-        "0", "1", "3", "4", "7", "8",
-        "#", "%", "&", "@", "$", "?", "!", "/", "<", ">", "*", "+", "=",
-        juce::String::charToString(0x2593), // dark shade
-        juce::String::charToString(0x2592), // medium shade
-        juce::String::charToString(0x2591), // light shade
-    };
-    const int nt = (int)(sizeof(tokens) / sizeof(tokens[0]));
-    juce::String s;
-    for (int i = 0; i < len; ++i)
-        s += tokens[rng.nextInt(nt)];
-    return s;
-}
-
 void BreakManglerEditor::timerCallback() {
     // project restore: the sample (re)slices on the first audio block —
     // if the count or filename changes under us, refresh the readouts
@@ -391,16 +493,15 @@ void BreakManglerEditor::timerCallback() {
     else
         playButton.setButtonText("STOP");
     // Scramble display: while the engine is actually playing, the word
-    // MANGLER mangles itself on every slice hit (harder with more CHAOS),
-    // wrong letters heal back toward the truth between hits, and the old
-    // slice readout runs raw decoder gibberish. Stopped = clean title.
+    // MANGLER mangles itself on every slice hit (harder with more CHAOS)
+    // and wrong letters heal back toward the truth between hits.
+    // Stopped = clean title. The waveform screen shows slice activity.
     {
         const bool rolling = tp && playButton.getToggleState() && n > 0;
         if (rolling) {
             const float chaos = proc.effectiveParams().chaos;
             if (ls != lastSliceSeen_) {
                 manglerShown_ = mangleWord(0.2f + 0.8f * chaos, rng_).toStdString();
-                gibberishShown_ = gibberish(12, rng_);
             } else {
                 static const char truth[8] = "MANGLER";
                 for (int i = 0; i < 7; ++i)
@@ -410,12 +511,13 @@ void BreakManglerEditor::timerCallback() {
             }
         } else {
             manglerShown_ = "MANGLER";
-            gibberishShown_ = "--";
         }
         lastSliceSeen_ = ls;
         titleLabel.setText("BREAK " + juce::String(manglerShown_),
                            juce::dontSendNotification);
-        sliceReadout.setText(gibberishShown_, juce::dontSendNotification);
+        waveform.setSnapshot(proc.waveSnapshot());
+        waveform.setPlayState(proc.playheadStep.load(), n,
+                              rolling ? ls : -1, rolling);
     }
     // keep segmented controls in sync with host/preset changes
     auto syncSeg = [&](juce::TextButton* btns, int count, const char* param) {

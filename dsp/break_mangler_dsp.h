@@ -145,7 +145,7 @@ inline void resampleToLength(std::vector<float>& buf, size_t targetLen) {
 }
 
 // Fit a buffer length to an integer bar count at the given tempo.
-// Returns bars (1..8), or 0 when the length doesn't sit on a bar grid
+// Returns bars (1..32), or 0 when the length doesn't sit on a bar grid
 // (one-shots, odd lengths) — caller falls back to transient slicing.
 inline int detectBars(size_t nSamples, double sr, double tempo) {
     if (tempo <= 0.0 || nSamples == 0 || sr <= 0.0) return 0;
@@ -154,7 +154,7 @@ inline int detectBars(size_t nSamples, double sr, double tempo) {
     if (durSec < hostBarSec * 0.9) return 0; // shorter than ~1 bar
     int bars = (int)std::round(durSec / hostBarSec);
     if (bars < 1) bars = 1;
-    if (bars > 8) bars = 8;
+    if (bars > 32) bars = 32;
     const double fitLen = (double)bars * hostBarSec;
     if (std::fabs(durSec - fitLen) / fitLen > 0.05) return 0;
     return bars;
@@ -373,7 +373,6 @@ inline float crushSample(float x, int bits) {
 class Engine {
 public:
     static constexpr int kMaxVoices = 8;
-    static constexpr int kMaxSlices = 128; // 8 bars x 16 sixteenths
     static constexpr double kMaxLoadSeconds = 90.0;
 
     Engine() { reset(); }
@@ -455,6 +454,18 @@ public:
     const Slice& slice(int i) const { return slices_[(size_t)i]; }
     int lastSlice() const { return lastSlice_; } // most recently triggered slice, for GUI
     int numBars() const { return bars_; } // 0 when transient fallback was used
+    // In-order step position within the loop (for the GUI playhead): the
+    // absolute step since launch, wrapped to the slice/loop length.
+    int loopStep() const {
+        const int ns = numSlices();
+        if (ns == 0) return 0;
+        const int64_t rel = absStep_ - launchOffset_;
+        return (int)(((rel % ns) + ns) % ns);
+    }
+    // The fitted loop buffer (for the GUI waveform display). Message thread
+    // may only read these when no load is in flight (loads suspend processing).
+    const std::vector<float>& waveL() const { return bufL_; }
+    const std::vector<float>& waveR() const { return bufR_; }
     bool wasTruncated() const { return truncated_; }
     int numVoicesActive() const {
         int n = 0;

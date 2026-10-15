@@ -221,15 +221,36 @@ int main(int argc, char** argv) {
               "bypass: manual snapshot drives the engine");
     }
 
-    // scramble display helpers
+    // scramble display helpers (title still mangles; the gibberish readout
+    // is now the waveform screen)
     {
         juce::Random rng(42);
         CHECK(BreakManglerEditor::mangleWord(0.0f, rng) == "MANGLER",
               "mangle: clean at intensity 0");
         CHECK(BreakManglerEditor::mangleWord(1.0f, rng).length() == 7,
               "mangle: length preserved at full intensity");
-        CHECK(BreakManglerEditor::gibberish(12, rng).length() == 12,
-              "gibberish: 12 glyphs generated");
+    }
+
+    // waveform snapshot (replaces the old gibberish readout)
+    {
+        auto snap = proc.waveSnapshot();
+        CHECK(snap != nullptr, "waveform: snapshot published after load");
+        if (snap) {
+            CHECK((int)snap->sliceBounds.size() == ns,
+                  "waveform: slice bounds match slice count");
+            CHECK(snap->totalSamples > 0, "waveform: nonzero length");
+            CHECK(snap->mins.size() == snap->maxs.size() &&
+                      snap->mins.size() ==
+                          (size_t)BreakManglerProcessor::WaveSnapshot::kColumns,
+                  "waveform: peak columns complete");
+        }
+        const int s0 = proc.playheadStep.load();
+        for (int b = 0; b < 40; ++b) {
+            buf.clear();
+            proc.processBlock(buf, midi);
+        }
+        CHECK(proc.playheadStep.load() != s0,
+              "waveform: playhead step advances while rendering");
     }
 
     // real editor

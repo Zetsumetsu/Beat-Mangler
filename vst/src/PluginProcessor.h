@@ -2,6 +2,9 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <atomic>
+#include <memory>
+#include <utility>
+#include <vector>
 #include "break_mangler_dsp.h"
 
 // Break Mangler VST3 — minimal prototype.
@@ -57,6 +60,19 @@ public:
     std::atomic<int> sliceCount{0};
     std::atomic<int> barsCount{0};
     std::atomic<int> lastSlice{-1};
+    std::atomic<int> playheadStep{0}; // in-order step within the loop, for GUI
+
+    // Waveform snapshot for the GUI: per-column peaks, slice bounds in
+    // samples, bar count. Built after every load (message or audio thread)
+    // and published under a lock; the editor renders from its own copy.
+    struct WaveSnapshot {
+        static constexpr int kColumns = 512;
+        std::vector<float> mins, maxs; // per-column peak pairs, -1..1
+        std::vector<std::pair<int,int>> sliceBounds; // sample ranges
+        int bars = 0;
+        int totalSamples = 0;
+    };
+    std::shared_ptr<const WaveSnapshot> waveSnapshot(); // locks briefly
 
     // Message thread only. Suspends processing while the file loads + slices.
     // The file's bytes are kept and embedded in the plugin state, so the
@@ -70,11 +86,14 @@ public:
 private:
     // Slice the stashed file bytes into the engine at the given tempo.
     bool performLoad(double tempo);
+    void publishWaveSnapshot(); // snapshot the fitted loop for the GUI
     breakmangler::Engine engine_;
     juce::String loadedFileName_ = "no file loaded";
     juce::File loadedFile_;
     juce::MemoryBlock loadedData_; // raw bytes of the loaded file (for state)
     std::atomic<bool> pendingReload_{false}; // state restored: load on 1st block
+    juce::CriticalSection waveSnapshotLock_;
+    std::shared_ptr<const WaveSnapshot> waveSnapshot_;
     double fallbackPpq_ = 0.0; // free-run position when host gives none
     bool lastGate_ = true;
 
