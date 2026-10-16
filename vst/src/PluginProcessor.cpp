@@ -33,13 +33,6 @@ BreakManglerProcessor::createParameterLayout() {
     return {params.begin(), params.end()};
 }
 
-double BreakManglerProcessor::getHostTempo() const {
-    if (auto* ph = getPlayHead())
-        if (auto pos = ph->getPosition())
-            return pos->getBpm().orFallback(120.0);
-    return 120.0;
-}
-
 void BreakManglerProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/) {
     engine_.setSampleRate(sampleRate);
     fallbackPpq_ = 0.0;
@@ -111,7 +104,11 @@ bool BreakManglerProcessor::loadAudioFile(const juce::File& file) {
         return false;
     loadedData_ = data; // kept for project persistence
     suspendProcessing(true);
-    const bool ok = performLoad(getHostTempo());
+    // Use the engine's audio-thread tempo (updated every block from the
+    // host) rather than querying the playhead here: VST3 does not
+    // guarantee a valid playhead on the message thread, and a stale or
+    // fallback tempo makes bar detection miss on every sample.
+    const bool ok = performLoad(engine_.tempo());
     if (ok) {
         loadedFileName_ = file.getFileName();
         loadedFile_ = file;
@@ -123,7 +120,7 @@ bool BreakManglerProcessor::loadAudioFile(const juce::File& file) {
 bool BreakManglerProcessor::resliceCurrentFile() {
     if (loadedData_.getSize() < 44) return false;
     suspendProcessing(true);
-    const bool ok = performLoad(getHostTempo());
+    const bool ok = performLoad(engine_.tempo());
     suspendProcessing(false);
     return ok;
 }

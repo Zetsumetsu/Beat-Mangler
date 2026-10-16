@@ -85,7 +85,6 @@ public:
     // MANUAL mode.
     void resetKnobsToZero();
     juce::String loadedFileName() const { return loadedFileName_; }
-    double getHostTempo() const;
     breakmangler::Params currentParams() const;
 
 private:
