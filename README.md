@@ -1,19 +1,15 @@
 # Break Mangler
 
-*Garbage in, music out.*
+A generative re-composer. Not a manual sampler.
 
-A generative re-composer for the Daisy Patch (IDM territory: Aphex / Autechre / Plaid). Not a manual sampler.
-
-Breaks load from SD. The module auto-slices by transient detection, then probabilistically re-sequences slices with per-slice pitch, reverse, stutter, and retrigger. One knob sweeps order into chaos: at zero it plays the source faithfully; turned up, total beautiful chaos.
+Drop in a loop and it slices the audio apart and re-sequences it live, with one knob sweeping from faithful playback to total beautiful chaos.
 
 ## Key constraints
 
-- **Generative-first, not a manual sampler.** Must clearly earn its place next to the 1010music BitBox: auto-slicing vs manual slice editing, the chaos macro as a single performable gesture, per-slice degradation in the playback path (PBD lineage), CV/gate native, no menu diving.
-- **Immediately playable.** Boots, loads the first break on the card, auto-slices, starts making music. Clock in auto-fits the source to tempo. Smart defaults plus a few curated scenes.
-- **VST-first iteration.** The DSP is built from day one as a portable, platform-independent core shared between the hardware firmware and a VST. Iterate on the design in Ableton; the Daisy Patch firmware is developed in tandem immediately after.
+- **Generative-first, not a manual sampler.** Must clearly earn its place next to the 1010music BitBox: auto-slicing vs manual slice editing, the chaos macro as a single performable gesture, per-slice character in the playback path, no menu diving.
+- **Immediately playable.** Load a loop, it auto-fits to the host tempo and starts making music. Smart defaults, near-zero setup.
+- **VST-first.** The DSP is a portable, platform-independent core; the VST is the design playground. A Daisy Patch firmware adaptation follows once the instrument is finalized.
 
 ## Status
 
-Design phase. Brainstorming and design only — no code until given the word.
-
-See `DESIGN.md` for the full working brief.
+In development and ear-testing. See `DESIGN.md` for the working brief.

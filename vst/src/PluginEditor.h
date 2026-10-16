@@ -24,13 +24,21 @@ public:
 // loaded loop on its slice grid; the currently sounding slice glows and a
 // playhead line sweeps the bar grid. The waveform image is rendered once
 // per snapshot; only the overlays repaint on the timer.
-class WaveformDisplay : public juce::Component, private juce::Timer {
+class WaveformDisplay : public juce::Component,
+                        public juce::FileDragAndDropTarget,
+                        private juce::Timer {
 public:
     WaveformDisplay();
     void setSnapshot(std::shared_ptr<const BreakManglerProcessor::WaveSnapshot> snap);
     void setPlayState(int step, int totalSteps, int activeSlice, bool rolling);
     void paint(juce::Graphics& g) override;
     void resized() override;
+    // Drop zone: files dropped here load like the LOAD button.
+    bool isInterestedInFileDrag(const juce::StringArray& files) override;
+    void filesDropped(const juce::StringArray& files, int x, int y) override;
+    void fileDragEnter(const juce::StringArray& files, int x, int y) override;
+    void fileDragExit(const juce::StringArray& files) override;
+    std::function<void(const juce::File&)> onFileDrop;
 
 private:
     void timerCallback() override;
@@ -39,7 +47,7 @@ private:
     std::shared_ptr<const BreakManglerProcessor::WaveSnapshot> snap_;
     juce::Image waveImage_;
     int step_ = 0, totalSteps_ = 0, activeSlice_ = -1;
-    bool rolling_ = false, dirty_ = true;
+    bool rolling_ = false, dirty_ = true, dragOver_ = false;
 };
 
 class BreakManglerEditor : public juce::AudioProcessorEditor,
@@ -74,9 +82,9 @@ private:
 
     juce::Slider chaosKnob, densityKnob, pitchKnob, degradeKnob;
     juce::Label chaosLabel, densityLabel, pitchLabel, degradeLabel, rateLabel,
-        gridLabel;
+        gridLabel, snapLabel;
     juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel,
-        footerLabel, transportLabel;
+        transportLabel;
     juce::TextButton loadButton{"LOAD"}, playButton{"STOP"}, autoButton{"AUTO: HOST"};
     juce::TextButton snapButtons[3];
     juce::TextButton rateButtons[4];

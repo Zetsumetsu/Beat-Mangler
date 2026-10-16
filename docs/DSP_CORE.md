@@ -20,7 +20,7 @@ Reads the selected WAV (SD card on hardware, disk in the VST), validates the hea
 
 - **Transient mode (default):** onset detection over the buffer with an adaptive threshold, run once at load. Stores up to 16 slice markers.
 - **Grid mode:** equal divisions, 16 default, tempo-aware via clock-in auto-fit. Used for sustained material with no clear attacks.
-- **Auto-fallback:** fewer than a handful of real onsets → grid, with an OLED note.
+- **Auto-fallback:** fewer than a handful of real onsets → grid, with a UI note.
 - **One-shot:** file under ~2s with ~1 onset → the whole file is a single slice.
 - Each slice stores start/end, peak, and RMS. Peak/RMS feed the sequencer's probability weights.
 
@@ -51,7 +51,7 @@ Hardware has 4 knobs + 4 CVs + gates + encoder; the VST exposes the same paramet
 
 | Param | What it does |
 |---|---|
-| CHAOS | The macro: order → full Autechre |
+| CHAOS | The macro: order → beautiful chaos |
 | DENSITY | Stutter/retrigger rate and depth trim |
 | PITCH | Pitch deviation range trim |
 | DEGRADE | Bitcrush/decimation amount trim |

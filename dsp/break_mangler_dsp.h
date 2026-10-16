@@ -354,6 +354,8 @@ struct Voice {
     int repeatLen = 1;  // output samples per repeat
     int repeatPos = 0;
     int played = 0;     // samples played in the current repeat (for fades)
+    int wrapFade = 0;   // remaining micro-fade after slice wrap-around
+    int wrapFadeLen = 96;
     int bits = 16;
     int decim = 1, decimCnt = 0;
     float holdL = 0.0f, holdR = 0.0f;
@@ -372,7 +374,7 @@ inline float crushSample(float x, int bits) {
 // ---------------------------------------------------------------------------
 class Engine {
 public:
-    static constexpr int kMaxVoices = 8;
+    static constexpr int kMaxVoices = 16;
     static constexpr double kMaxLoadSeconds = 90.0;
 
     Engine() { reset(); }
@@ -519,7 +521,10 @@ public:
         }
         const double ppqPerSample = (tempo_ / 60.0) / sampleRate_;
         const double rate = params_.rate > 0.0f ? (double)params_.rate : 1.0;
-        const double stepPpq = 0.25 / rate;
+        // TRIAL (v0.11): rate is relative to the slice grid — rate 1 is one
+        // step per slice, whatever the grid is. Revert to 0.25 if worse.
+        const double basePpq = (params_.gridDiv == 4) ? 1.0 : 0.25;
+        const double stepPpq = basePpq / rate;
         const double ppqEnd = ppqStart + (double)n * ppqPerSample;
         int firstSample = 0;
         if (launch_ == Launch::Armed) {
@@ -575,7 +580,9 @@ private:
     int stepSamples() const {
         const double t = tempo_ > 0.0 ? tempo_ : 120.0;
         const double r = params_.rate > 0.0 ? (double)params_.rate : 1.0;
-        return std::max(1, (int)(sampleRate_ * 60.0 / t / 4.0 / r)); // 16ths
+        // TRIAL (v0.11): match processSynced — one step per slice at rate 1.
+        const double baseDiv = (params_.gridDiv == 4) ? 1.0 : 4.0;
+        return std::max(1, (int)(sampleRate_ * 60.0 / t / baseDiv / r));
     }
 
     void triggerStep() {
@@ -594,12 +601,20 @@ private:
             const float reorderP = std::pow(chaos, 1.5f);
             if (rng_.uniform() < reorderP) idx = weightedPick();
         }
-        // PITCH: occasional musical interval jump (fifths/octaves), snapped
-        // to the pitch-snap mode like before.
+        // PITCH: occasional interval jump. Weighted pool — the consonant
+        // core (fifths/octaves) dominates, wilder intervals (fourths,
+        // sevenths, double octaves) surprise. SNAP modes shape the result:
+        // GLIDE leaves them raw, SEMI steps them, SCALE keeps them in key.
         float semis = 0.0f;
         if (rng_.uniform() < params_.pitchTrim) {
-            static constexpr float intervals[4] = {-12.0f, -7.0f, 7.0f, 12.0f};
-            semis = quantizePitch(intervals[(int)(rng_.uniform() * 4.0f)]);
+            static constexpr float intervals[] = {
+                -12.0f,-12.0f,-12.0f, -7.0f,-7.0f,-7.0f,
+                +7.0f,+7.0f,+7.0f, +12.0f,+12.0f,+12.0f,
+                -24.0f, -5.0f, +5.0f, -10.0f, +10.0f, +24.0f
+            };
+            static constexpr int nIntervals = 18;
+            const int pick = (int)(rng_.uniform() * (float)nIntervals);
+            semis = quantizePitch(intervals[pick < nIntervals ? pick : 0]);
         }
         // DENSITY: rhythmic mangling — stutter or reverse, coin flip.
         bool reverse = false;
@@ -681,6 +696,8 @@ private:
         v->repeatLen = std::max(1, stepSamples() / repeats);
         v->repeatPos = 0;
         v->played = 0;
+        v->wrapFade = 0;
+        v->wrapFadeLen = std::max(1, std::min((int)(0.002 * sampleRate_), 512));
         v->bits = bits;
         v->decim = decim;
         v->decimCnt = 0;
@@ -704,6 +721,12 @@ private:
         if (v.played < fade) env = (float)v.played / (float)fade;
         const int remain = v.repeatLen - v.repeatPos;
         if (remain < fade) env = std::min(env, (float)remain / (float)fade);
+        // micro-fade after slice wrap-around: short slices looping inside a
+        // step would otherwise click at every wrap.
+        if (v.wrapFade > 0) {
+            env *= 1.0f - (float)v.wrapFade / (float)(v.wrapFadeLen + 1);
+            v.wrapFade--;
+        }
         // decimation (sample-rate crush)
         if (v.decim > 1) {
             if (v.decimCnt % v.decim == 0) {
@@ -720,8 +743,8 @@ private:
         r += sr * env;
         // advance
         v.pos += v.rate;
-        if (v.pos >= len) v.pos -= len;
-        else if (v.pos < 0.0) v.pos += len;
+        if (v.pos >= len) { v.pos -= len; v.wrapFade = v.wrapFadeLen; }
+        else if (v.pos < 0.0) { v.pos += len; v.wrapFade = v.wrapFadeLen; }
         v.played++;
         v.repeatPos++;
         v.age++;

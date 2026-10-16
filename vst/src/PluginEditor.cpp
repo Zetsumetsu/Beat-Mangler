@@ -97,6 +97,42 @@ void WaveformDisplay::resized() {
     dirty_ = true;
 }
 
+bool WaveformDisplay::isInterestedInFileDrag(const juce::StringArray& files) {
+    for (auto& f : files) {
+        juce::File file(f);
+        auto ext = file.getFileExtension().toLowerCase();
+        if (ext == ".wav" || ext == ".aif" || ext == ".aiff" ||
+            ext == ".flac" || ext == ".mp3")
+            return true;
+    }
+    return false;
+}
+
+void WaveformDisplay::filesDropped(const juce::StringArray& files, int, int) {
+    dragOver_ = false;
+    repaint();
+    for (auto& f : files) {
+        juce::File file(f);
+        auto ext = file.getFileExtension().toLowerCase();
+        if ((ext == ".wav" || ext == ".aif" || ext == ".aiff" ||
+             ext == ".flac" || ext == ".mp3") &&
+            file.existsAsFile()) {
+            if (onFileDrop) onFileDrop(file);
+            return;
+        }
+    }
+}
+
+void WaveformDisplay::fileDragEnter(const juce::StringArray&, int, int) {
+    dragOver_ = true;
+    repaint();
+}
+
+void WaveformDisplay::fileDragExit(const juce::StringArray&) {
+    dragOver_ = false;
+    repaint();
+}
+
 void WaveformDisplay::timerCallback() {
     if (rolling_ || dirty_) {
         dirty_ = false;
@@ -135,6 +171,10 @@ void WaveformDisplay::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(bounds, 4.0f);
     g.setColour(juce::Colour(0xff2a2a30));
     g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+    if (dragOver_) {
+        g.setColour(juce::Colour(0xaaff3b30));
+        g.drawRoundedRectangle(bounds.reduced(1.0f), 4.0f, 2.0f);
+    }
 
     if (!snap_ || snap_->totalSamples <= 0 ||
         snap_->sliceBounds.empty()) {
@@ -227,7 +267,7 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.10  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.11  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -235,11 +275,20 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     setupLabel(degradeLabel, "DEGRADE", 11);
     setupLabel(rateLabel, "RATE", 11);
     setupLabel(gridLabel, "GRID", 11);
+    setupLabel(snapLabel, "SNAP", 11);
     setupLabel(sliceInfoLabel, "no file loaded", 12, kDim);
     sliceInfoLabel.setJustificationType(juce::Justification::left);
-    setupLabel(footerLabel, "garbage in, music out.", 12, kDim);
-    footerLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(waveform);
+    waveform.onFileDrop = [this](const juce::File& f) {
+        if (proc.loadAudioFile(f)) {
+            fileLabel.setText(proc.loadedFileName(),
+                               juce::dontSendNotification);
+            updateSliceInfo();
+        } else {
+            fileLabel.setText("could not load file",
+                               juce::dontSendNotification);
+        }
+    };
 
     fileLabel.setText(proc.loadedFileName(), juce::dontSendNotification);
     fileLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
@@ -367,6 +416,9 @@ void BreakManglerEditor::paint(juce::Graphics& g) {
     // faint red baseline under the hero knob area
     g.setColour(juce::Colour(0x22ff3b30));
     g.fillRect(0, 268, getWidth(), 1);
+    // thin group line tying the SNAP buttons together
+    g.setColour(juce::Colour(0xff2a2a30));
+    g.drawLine(36.0f, 320.0f, 230.0f, 320.0f, 1.0f);
 }
 
 void BreakManglerEditor::resized() {
@@ -391,6 +443,7 @@ void BreakManglerEditor::resized() {
     gridButtons[0].setBounds(242, 286, 62, 34);
     gridButtons[1].setBounds(308, 286, 62, 34);
     gridLabel.setBounds(242, 322, 128, 14);
+    snapLabel.setBounds(36, 322, 194, 14);
     loadButton.setBounds(392, 286, 90, 34);
     fileLabel.setBounds(492, 286, 124, 34);
     sliceInfoLabel.setBounds(36, 340, 200, 20);
@@ -398,7 +451,6 @@ void BreakManglerEditor::resized() {
     playButton.setBounds(252, 340, 130, 40);
     waveform.setBounds(392, 336, 224, 88);
     autoButton.setBounds(252, 392, 130, 30);
-    footerLabel.setBounds(24, 398, 216, 24);
 }
 
 void BreakManglerEditor::loadFile() {
