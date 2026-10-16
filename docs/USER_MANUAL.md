@@ -40,6 +40,14 @@ octaves) land less often, as surprises.
 **DEGRADE** — per-slice chance of a bitcrush hit: a short burst of 8-bit
 grit.
 
+**ERA** — the global character macro. At zero the output is clean and
+modern, exactly as the engine renders it. Turn it up and three things move
+together: bit depth falls toward 12-bit, the input drive saturates harder,
+and the top end darkens. Full up is the S950: crunchy, hot, and dark. It
+sits on the output stage, after everything else, so it colors the whole
+performance at once. It pairs beautifully with DEGRADE: crushed slices
+through a saturated output get truly filthy.
+
 **RATE** — step density, relative to the slice grid. 1 is one step per
 slice: the loop as sliced. 2 is twice as dense, 1/4 is quarter density.
 
@@ -52,7 +60,21 @@ leaves them raw and smooth, SEMI snaps them to the nearest semitone, SCALE
 pulls them into the minor pentatonic so pitched slices stay in key. The
 wilder PITCH gets, the more SCALE earns its keep.
 
-All four knobs are built to be modulated. They are automatable and respond
+**FIT (VARISPEED / S950)** — how the loop is fitted to the host tempo at
+load. VARISPEED resamples smoothly, which also repitches the loop slightly
+to make it fit. S950 keeps the original pitch and fits the time by
+repeating or dropping short segments, with the gritty artifacts baked
+right into the audio. Same loop, two different kinds of authentic.
+
+## Presets
+
+The preset dropdown in the header ships with six factory starting points:
+Faithful, Pitched Break, Gentle Chaos, Beautiful Chaos, Crushed, and
+Vocal Chop. SAVE stores your current knob and button settings under a
+name of your choice; DEL removes a user preset. Your presets live in your
+user data folder and survive updates.
+
+All five knobs are built to be modulated. They are automatable and respond
 to LFOs like any plugin parameter.
 
 ## The waveform display

@@ -243,6 +243,7 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     setupKnob(densityKnob, "density", "density");
     setupKnob(pitchKnob, "pitch", "pitchTrim");
     setupKnob(degradeKnob, "degrade", "degradeTrim");
+    setupKnob(eraKnob, "era", "era");
 
     auto& apvts = proc.apvts;
     chaosAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -253,6 +254,8 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
         apvts, "pitchTrim", pitchKnob);
     degradeAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         apvts, "degradeTrim", degradeKnob);
+    eraAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        apvts, "era", eraKnob);
 
     auto setupLabel = [&](juce::Label& l, const juce::String& text, int size,
                           juce::Colour c = kText) {
@@ -267,7 +270,7 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.11  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.12  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -276,6 +279,7 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     setupLabel(rateLabel, "RATE", 11);
     setupLabel(gridLabel, "GRID", 11);
     setupLabel(snapLabel, "SNAP", 11);
+    setupLabel(eraLabel, "ERA", 11);
     setupLabel(sliceInfoLabel, "no file loaded", 12, kDim);
     sliceInfoLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(waveform);
@@ -362,6 +366,71 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     loadButton.onClick = [this] { loadFile(); };
     addAndMakeVisible(loadButton);
 
+    // Presets live in the header: factory set plus the user's own.
+    refreshPresetList();
+    addAndMakeVisible(presetBox);
+    presetBox.onChange = [this] {
+        const int id = presetBox.getSelectedId();
+        if (id <= 0) return;
+        const auto factories = BreakManglerProcessor::factoryPresets();
+        if (id <= (int)factories.size()) {
+            proc.applyPreset(factories[id - 1]);
+        } else {
+            proc.loadUserPreset(presetBox.getText());
+        }
+        updateSliceInfo();
+    };
+    presetSave.onClick = [this] {
+        auto* alert = new juce::AlertWindow(
+            "Save preset", "Name this preset:", juce::AlertWindow::NoIcon);
+        alert->addTextEditor("name", "", "Preset name:");
+        alert->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+        alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+        alert->enterModalState(true, juce::ModalCallbackFunction::create(
+            [this, alert](int result) {
+                if (result == 1) {
+                    const juce::String name =
+                        alert->getTextEditorContents("name");
+                    if (proc.saveUserPreset(name)) {
+                        refreshPresetList();
+                        for (int i = 0; i < presetBox.getNumItems(); ++i) {
+                            if (presetBox.getItemText(i) == name) {
+                                presetBox.setSelectedItemIndex(
+                                    i, juce::dontSendNotification);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }), true); // deletes itself when dismissed
+    };
+    presetDel.onClick = [this] {
+        const int id = presetBox.getSelectedId();
+        const auto factories = BreakManglerProcessor::factoryPresets();
+        if (id > (int)factories.size() &&
+            proc.deleteUserPreset(presetBox.getText()))
+            refreshPresetList();
+    };
+    addAndMakeVisible(presetSave);
+    addAndMakeVisible(presetDel);
+
+    // FIT: load-time fit mode. VARISPEED repitches; S950 keeps the pitch
+    // and fits time with repeated/dropped segments (grit baked in).
+    fitButton.setClickingTogglesState(true);
+    fitButton.setToggleState(false, juce::dontSendNotification);
+    fitButton.onClick = [this] {
+        const bool s950 = fitButton.getToggleState();
+        if (proc.autoBypass.load()) {
+            proc.manFitMode.store(s950 ? 1 : 0);
+        } else if (auto* param = proc.apvts.getParameter("fitMode")) {
+            param->setValueNotifyingHost(s950 ? 1.0f : 0.0f);
+        }
+        fitButton.setButtonText(s950 ? "FIT: S950" : "FIT: VARISPEED");
+        proc.resliceCurrentFile();
+        updateSliceInfo();
+    };
+    addAndMakeVisible(fitButton);
+
     playButton.setClickingTogglesState(true);
     playButton.setToggleState(true, juce::dontSendNotification);
     playButton.onClick = [this] {
@@ -390,6 +459,9 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     };
     degradeKnob.onValueChange = [this] {
         if (proc.autoBypass.load()) proc.manDegrade.store((float)degradeKnob.getValue());
+    };
+    eraKnob.onValueChange = [this] {
+        if (proc.autoBypass.load()) proc.manEra.store((float)eraKnob.getValue());
     };
 
     setupLabel(transportLabel, "HOST STOPPED", 11, kDim);
@@ -424,20 +496,22 @@ void BreakManglerEditor::paint(juce::Graphics& g) {
 void BreakManglerEditor::resized() {
     titleLabel.setBounds(24, 12, 400, 40);
     subLabel.setBounds(400, 24, 216, 20);
-    chaosKnob.setBounds(36, 92, 150, 150);
-    chaosLabel.setBounds(36, 244, 150, 20);
-    densityKnob.setBounds(220, 100, 90, 90);
-    densityLabel.setBounds(220, 192, 90, 18);
-    pitchKnob.setBounds(320, 100, 90, 90);
-    pitchLabel.setBounds(320, 192, 90, 18);
-    degradeKnob.setBounds(420, 100, 90, 90);
-    degradeLabel.setBounds(420, 192, 90, 18);
-    // RATE 2x2 in the old BPM slot
-    rateButtons[0].setBounds(524, 100, 43, 43);
-    rateButtons[1].setBounds(569, 100, 43, 43);
-    rateButtons[2].setBounds(524, 145, 43, 43);
-    rateButtons[3].setBounds(569, 145, 43, 43);
-    rateLabel.setBounds(524, 192, 90, 18);
+    chaosKnob.setBounds(30, 96, 140, 140);
+    chaosLabel.setBounds(30, 238, 140, 18);
+    densityKnob.setBounds(184, 104, 78, 78);
+    densityLabel.setBounds(184, 184, 78, 16);
+    pitchKnob.setBounds(272, 104, 78, 78);
+    pitchLabel.setBounds(272, 184, 78, 16);
+    degradeKnob.setBounds(360, 104, 78, 78);
+    degradeLabel.setBounds(360, 184, 78, 16);
+    eraKnob.setBounds(448, 104, 78, 78);
+    eraLabel.setBounds(448, 184, 78, 16);
+    // RATE 2x2, slightly smaller to make room for ERA
+    rateButtons[0].setBounds(540, 104, 38, 38);
+    rateButtons[1].setBounds(582, 104, 38, 38);
+    rateButtons[2].setBounds(540, 146, 38, 38);
+    rateButtons[3].setBounds(582, 146, 38, 38);
+    rateLabel.setBounds(540, 186, 80, 16);
     for (int i = 0; i < 3; ++i)
         snapButtons[i].setBounds(36 + i * 66, 286, 62, 34);
     gridButtons[0].setBounds(242, 286, 62, 34);
@@ -451,6 +525,10 @@ void BreakManglerEditor::resized() {
     playButton.setBounds(252, 340, 130, 40);
     waveform.setBounds(392, 336, 224, 88);
     autoButton.setBounds(252, 392, 130, 30);
+    fitButton.setBounds(36, 392, 140, 28);
+    presetBox.setBounds(400, 42, 150, 20);
+    presetSave.setBounds(554, 42, 36, 20);
+    presetDel.setBounds(594, 42, 36, 20);
 }
 
 void BreakManglerEditor::loadFile() {
@@ -474,6 +552,21 @@ void BreakManglerEditor::loadFile() {
                          });
 }
 
+void BreakManglerEditor::refreshPresetList() {
+    presetBox.clear(juce::dontSendNotification);
+    const auto factories = BreakManglerProcessor::factoryPresets();
+    int id = 1;
+    for (auto& p : factories)
+        presetBox.addItem(p.name, id++);
+    const auto users = proc.userPresetNames();
+    if (!users.empty()) {
+        presetBox.addSeparator();
+        for (auto& n : users)
+            presetBox.addItem(n, id++);
+    }
+    presetBox.setText("Presets", juce::dontSendNotification);
+}
+
 void BreakManglerEditor::updateSliceInfo() {
     int n = proc.sliceCount.load();
     int bars = proc.barsCount.load();
@@ -493,10 +586,12 @@ void BreakManglerEditor::setAutoBypass(bool on, bool snapshot) {
         densityAtt.reset();
         pitchAtt.reset();
         degradeAtt.reset();
+        eraAtt.reset();
         chaosKnob.setValue(proc.manChaos.load(), juce::dontSendNotification);
         densityKnob.setValue(proc.manDensity.load(), juce::dontSendNotification);
         pitchKnob.setValue(proc.manPitch.load(), juce::dontSendNotification);
         degradeKnob.setValue(proc.manDegrade.load(), juce::dontSendNotification);
+        eraKnob.setValue(proc.manEra.load(), juce::dontSendNotification);
         autoButton.setButtonText("AUTO: MANUAL");
     } else {
         proc.autoBypass.store(false);
@@ -505,6 +600,7 @@ void BreakManglerEditor::setAutoBypass(bool on, bool snapshot) {
         densityAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "density", densityKnob);
         pitchAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "pitchTrim", pitchKnob);
         degradeAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "degradeTrim", degradeKnob);
+        eraAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(proc.apvts, "era", eraKnob);
         autoButton.setButtonText("AUTO: HOST");
     }
 }
@@ -597,5 +693,13 @@ void BreakManglerEditor::timerCallback() {
         syncSeg(snapButtons, 3, "pitchSnap");
         syncSeg(rateButtons, 4, "rate");
         syncSeg(gridButtons, 2, "grid");
+    }
+    // FIT toggle follows the fitMode param (or the manual snapshot)
+    {
+        const bool s950 = proc.autoBypass.load()
+            ? proc.manFitMode.load() == 1
+            : proc.effectiveParams().fitMode == 1;
+        fitButton.setToggleState(s950, juce::dontSendNotification);
+        fitButton.setButtonText(s950 ? "FIT: S950" : "FIT: VARISPEED");
     }
 }

@@ -80,18 +80,22 @@ private:
     ManglerLookAndFeel laf;
     WaveformDisplay waveform;
 
-    juce::Slider chaosKnob, densityKnob, pitchKnob, degradeKnob;
+    juce::Slider chaosKnob, densityKnob, pitchKnob, degradeKnob, eraKnob;
     juce::Label chaosLabel, densityLabel, pitchLabel, degradeLabel, rateLabel,
-        gridLabel, snapLabel;
+        gridLabel, snapLabel, eraLabel;
     juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel,
         transportLabel;
     juce::TextButton loadButton{"LOAD"}, playButton{"STOP"}, autoButton{"AUTO: HOST"};
+    juce::TextButton fitButton{"FIT: VARISPEED"};
+    juce::TextButton presetSave{"SAVE"}, presetDel{"DEL"};
+    juce::ComboBox presetBox;
     juce::TextButton snapButtons[3];
     juce::TextButton rateButtons[4];
     juce::TextButton gridButtons[2];
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> chaosAtt,
-        densityAtt, pitchAtt, degradeAtt;
+        densityAtt, pitchAtt, degradeAtt, eraAtt;
+    void refreshPresetList();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BreakManglerEditor)
 };

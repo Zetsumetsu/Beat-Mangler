@@ -336,6 +336,8 @@ struct Params {
     float density = 0.0f;    // per-slice chance of stutter/reverse, 0..1
     float pitchTrim = 0.0f;  // per-slice chance of an interval jump, 0..1
     float degradeTrim = 0.0f;// per-slice chance of bitcrush, 0..1
+    float era = 0.0f;        // 0..1 — global S950 character: clean -> 12-bit grit
+    int fitMode = 0;         // 0 = varispeed repitch, 1 = S950 segment stretch
     PitchSnap pitchSnap = PitchSnap::Semitone;
     float rate = 1.0f;       // playback rate vs host tempo: 0.25/0.5/1/2
     int gridDiv = 16;        // slices per bar: 16 (sixteenths) or 4 (beats)
@@ -367,6 +369,46 @@ inline float crushSample(float x, int bits) {
     const float levels = std::ldexp(1.0f, bits - 1); // 2^(bits-1)
     float y = std::round(x * levels) / levels;
     return y > 1.0f ? 1.0f : (y < -1.0f ? -1.0f : y);
+}
+
+// S950-style time fit: repeat or drop short windows to reach targetLen.
+// Window boundaries are left raw — the grit is the character, baked in at
+// load. Deterministic, so stereo channels get identical surgery.
+inline void s950Fit(std::vector<float>& l, std::vector<float>& r,
+                    size_t targetLen) {
+    const size_t n = l.size();
+    if (n == 0 || n == targetLen || r.size() != n) return;
+    const double ratio = (double)targetLen / (double)n;
+    const size_t win = 256; // ~5ms at 48k
+    std::vector<float> ol, orr;
+    ol.reserve(targetLen);
+    orr.reserve(targetLen);
+    double acc = 0.0;
+    size_t i = 0;
+    while (i < n && ol.size() < targetLen) {
+        const size_t w = std::min(win, n - i);
+        acc += (ratio - 1.0) * (double)w;
+        if (acc <= -(double)w) {
+            acc += (double)w; // drop this window
+        } else {
+            for (size_t j = 0; j < w && ol.size() < targetLen; ++j) {
+                ol.push_back(l[i + j]);
+                orr.push_back(r[i + j]);
+            }
+            if (acc >= (double)w) {
+                for (size_t j = 0; j < w && ol.size() < targetLen; ++j) {
+                    ol.push_back(l[i + j]);
+                    orr.push_back(r[i + j]);
+                }
+                acc -= (double)w;
+            }
+        }
+        i += w;
+    }
+    ol.resize(targetLen, 0.0f);
+    orr.resize(targetLen, 0.0f);
+    l.swap(ol);
+    r.swap(orr);
 }
 
 // ---------------------------------------------------------------------------
@@ -420,8 +462,12 @@ public:
         if (bars > 0) {
             const size_t targetLen =
                 (size_t)((double)bars * 240.0 / tempo_ * sampleRate_);
-            resampleToLength(bufL_, targetLen);
-            resampleToLength(bufR_, targetLen);
+            if (params_.fitMode == 1) {
+                s950Fit(bufL_, bufR_, targetLen); // pitch kept, segments cut
+            } else {
+                resampleToLength(bufL_, targetLen); // varispeed repitch
+                resampleToLength(bufR_, targetLen);
+            }
             slices_ = buildGridSlices(bufL_, bufR_, sampleRate_, bars, div);
             bars_ = bars;
         } else {
@@ -449,7 +495,30 @@ public:
         launch_ = Launch::Playing;
         samplesToStep_ = 1; // trigger immediately on first block
         syncActive_ = false;
+        eraLpL_ = eraLpR_ = 0.0f;
         for (auto& v : voices_) v.active = false;
+    }
+
+    // ERA: global S950 character stage. Bit depth 16->12, input drive, and
+    // top-end darkening move together on the one macro. At 0 it is a
+    // bypass (today's sound, bit-identical).
+    inline void applyEra(float& lv, float& rv) {
+        const float era = params_.era;
+        if (era <= 0.0001f) return;
+        const float drive = 1.0f + era * 2.0f;
+        const float norm = 1.0f / std::tanh(drive);
+        float dl = std::tanh(lv * drive) * norm;
+        float dr = std::tanh(rv * drive) * norm;
+        const int bits = 16 - (int)(era * 4.0f + 0.5f); // 16..12
+        dl = crushSample(dl, bits);
+        dr = crushSample(dr, bits);
+        const float fc = 18000.0f * std::pow(3500.0f / 18000.0f, era);
+        const float c = 1.0f - std::exp(-2.0f * 3.14159265f * fc /
+                                        (float)sampleRate_);
+        eraLpL_ += c * (dl - eraLpL_);
+        eraLpR_ += c * (dr - eraLpR_);
+        lv = eraLpL_;
+        rv = eraLpR_;
     }
 
     int numSlices() const { return (int)slices_.size(); }
@@ -486,8 +555,10 @@ public:
             float l = 0.0f, r = 0.0f;
             for (auto& v : voices_)
                 if (v.active) renderVoice(v, l, r);
-            outL[i] = std::tanh(l);
-            outR[i] = std::tanh(r);
+            float ol = std::tanh(l), orr = std::tanh(r);
+            applyEra(ol, orr);
+            outL[i] = ol;
+            outR[i] = orr;
         }
     }
 
@@ -570,8 +641,10 @@ public:
             float l = 0.0f, r = 0.0f;
             for (auto& v : voices_)
                 if (v.active) renderVoice(v, l, r);
-            outL[i] = std::tanh(l);
-            outR[i] = std::tanh(r);
+            float ol = std::tanh(l), orr = std::tanh(r);
+            applyEra(ol, orr);
+            outL[i] = ol;
+            outR[i] = orr;
         }
         expectedPpq_ = ppqStart + (double)(n - firstSample) * ppqPerSample;
     }
@@ -774,6 +847,8 @@ private:
     bool syncActive_ = false;
     double nextStepPpq_ = 0.0;
     double expectedPpq_ = 0.0;
+    // ERA stage filter memory
+    float eraLpL_ = 0.0f, eraLpR_ = 0.0f;
 };
 
 } // namespace breakmangler
