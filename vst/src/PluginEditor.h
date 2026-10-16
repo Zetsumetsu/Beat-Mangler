@@ -4,9 +4,9 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginProcessor.h"
 
-// First-pass GUI: dark industrial panel, hero CHAOS knob, trim knobs,
-// pitch-snap segmented control, file load, transport. My judgement call;
-// iterate freely.
+// v0.13 GUI: 720x480 panel, hero CHAOS knob, trim knobs, ERA, RATE grid,
+// pitch-snap segmented control, icon buttons (LOAD/PLAY/STOP/RESET),
+// file load, transport, waveform screen. Lean: no presets, no FIT toggle.
 
 class ManglerLookAndFeel : public juce::LookAndFeel_V4 {
 public:
@@ -18,6 +18,22 @@ public:
                               bool shouldDrawButtonAsHighlighted,
                               bool shouldDrawButtonAsDown) override;
     juce::Colour accentFor(juce::Component& c);
+};
+
+// IconButton: draws a vector icon instead of text. Used for LOAD (folder),
+// PLAY/STOP (transport) and RESET (circular arrow). The icon colour carries
+// state (e.g. red stop while playing); the background stays neutral.
+class IconButton : public juce::TextButton {
+public:
+    enum class Icon { Folder, Play, Stop, Reset };
+    IconButton() { setButtonText({}); }
+    void setIcon(Icon i) { icon_ = i; repaint(); }
+    void setIconColour(juce::Colour c) { iconColour_ = c; repaint(); }
+    void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+
+private:
+    Icon icon_ = Icon::Folder;
+    juce::Colour iconColour_ = juce::Colour(0xffc9c9d1);
 };
 
 // Waveform screen: replaces the old gibberish slice readout. Shows the
@@ -63,6 +79,7 @@ private:
     void timerCallback() override;
     void loadFile();
     void updateSliceInfo();
+    void updatePlayIcon();
     void setAutoBypass(bool on, bool snapshot);
     int shownSlices_ = -2;
 
@@ -85,17 +102,14 @@ private:
         gridLabel, snapLabel, eraLabel;
     juce::Label titleLabel, subLabel, fileLabel, sliceInfoLabel,
         transportLabel;
-    juce::TextButton loadButton{"LOAD"}, playButton{"STOP"}, autoButton{"AUTO: HOST"};
-    juce::TextButton fitButton{"FIT: VARISPEED"};
-    juce::TextButton presetSave{"SAVE"}, presetDel{"DEL"};
-    juce::ComboBox presetBox;
+    juce::TextButton autoButton{"AUTO: HOST"};
+    IconButton loadButton, playButton, resetButton;
     juce::TextButton snapButtons[3];
     juce::TextButton rateButtons[4];
     juce::TextButton gridButtons[2];
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> chaosAtt,
         densityAtt, pitchAtt, degradeAtt, eraAtt;
-    void refreshPresetList();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BreakManglerEditor)
 };

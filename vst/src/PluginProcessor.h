@@ -53,7 +53,7 @@ public:
     std::atomic<bool> autoBypass{false};
     std::atomic<float> manChaos{0.0f}, manDensity{0.0f}, manPitch{0.0f},
         manDegrade{0.0f}, manEra{0.0f}, manRate{1.0f};
-    std::atomic<int> manGrid{16}, manSnap{1}, manFitMode{0};
+    std::atomic<int> manGrid{16}, manSnap{1};
     void engageAutoBypass(); // snapshot current params into the manual set
     breakmangler::Params manualParams() const;
     breakmangler::Params effectiveParams() const; // manual if bypassed
@@ -80,20 +80,10 @@ public:
     bool loadAudioFile(const juce::File& file);
     bool resliceCurrentFile(); // re-slice loaded file (e.g. grid changed)
 
-    // Presets: factory set embedded, user presets as XML files.
-    struct Preset {
-        juce::String name;
-        float chaos = 0.0f, density = 0.0f, pitch = 0.0f, degrade = 0.0f,
-              era = 0.0f;
-        int rate = 2, grid = 0, snap = 1, fitMode = 0;
-    };
-    static std::vector<Preset> factoryPresets();
-    juce::File presetFolder() const;
-    std::vector<juce::String> userPresetNames() const;
-    void applyPreset(const Preset& p);
-    bool loadUserPreset(const juce::String& name);
-    bool saveUserPreset(const juce::String& name);
-    bool deleteUserPreset(const juce::String& name);
+    // RESET: zero the five knobs (the clean sample). Works in both AUTO
+    // modes: writes the host params in HOST mode, the manual snapshot in
+    // MANUAL mode.
+    void resetKnobsToZero();
     juce::String loadedFileName() const { return loadedFileName_; }
     double getHostTempo() const;
     breakmangler::Params currentParams() const;

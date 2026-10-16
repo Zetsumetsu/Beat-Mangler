@@ -68,6 +68,64 @@ void ManglerLookAndFeel::drawButtonBackground(
     }
 }
 
+void IconButton::paintButton(juce::Graphics& g, bool highlighted, bool) {
+    auto bounds = getLocalBounds().toFloat().reduced(0.5f);
+    juce::Colour fill = juce::Colour(0xff16161b); // kPanel
+    if (highlighted) fill = juce::Colour(0xff202027);
+    g.setColour(fill);
+    g.fillRoundedRectangle(bounds, 5.0f);
+    g.setColour(juce::Colour(0xff3a3a42));
+    g.drawRoundedRectangle(bounds, 5.0f, 1.5f);
+
+    const float cx = bounds.getCentreX(), cy = bounds.getCentreY();
+    const float s = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.32f;
+    juce::Colour ic = highlighted ? iconColour_.brighter(0.25f) : iconColour_;
+    g.setColour(ic);
+    juce::Path p;
+    switch (icon_) {
+    case Icon::Folder: {
+        // folder: body + tab
+        p.addRoundedRectangle(cx - s, cy - s * 0.45f, s * 2.0f, s * 1.15f, 2.0f);
+        p.addRoundedRectangle(cx - s, cy - s * 0.8f, s * 0.9f, s * 0.5f, 2.0f);
+        g.fillPath(p);
+        break;
+    }
+    case Icon::Play: {
+        p.addTriangle(cx - s * 0.55f, cy - s * 0.8f, cx - s * 0.55f,
+                      cy + s * 0.8f, cx + s * 0.85f, cy);
+        g.fillPath(p);
+        break;
+    }
+    case Icon::Stop: {
+        p.addRoundedRectangle(cx - s * 0.7f, cy - s * 0.7f, s * 1.4f,
+                              s * 1.4f, 2.0f);
+        g.fillPath(p);
+        break;
+    }
+    case Icon::Reset: {
+        // circular arrow: arc + head at the end, tangent to the circle
+        const float r = s * 0.85f;
+        const float a0 = 0.6f, a1 = 5.75f;
+        p.addCentredArc(cx, cy, r, r, 0.0f, a0, a1, true);
+        g.strokePath(p, juce::PathStrokeType(s * 0.3f,
+                                             juce::PathStrokeType::curved,
+                                             juce::PathStrokeType::rounded));
+        const float ex = cx + std::cos(a1) * r, ey = cy + std::sin(a1) * r;
+        const float tx = -std::sin(a1), ty = std::cos(a1); // clockwise tangent
+        const float nx = -ty, ny = tx;                    // normal
+        const float hs = s * 0.42f;
+        juce::Path head;
+        head.addTriangle(ex + tx * hs, ey + ty * hs,
+                         ex - tx * hs * 0.4f + nx * hs * 0.55f,
+                         ey - ty * hs * 0.4f + ny * hs * 0.55f,
+                         ex - tx * hs * 0.4f - nx * hs * 0.55f,
+                         ey - ty * hs * 0.4f - ny * hs * 0.55f);
+        g.fillPath(head);
+        break;
+    }
+    }
+}
+
 // --- WaveformDisplay -------------------------------------------------------
 WaveformDisplay::WaveformDisplay() { startTimerHz(30); }
 
@@ -229,7 +287,7 @@ void WaveformDisplay::paint(juce::Graphics& g) {
 BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     : AudioProcessorEditor(p), proc(p) {
     setLookAndFeel(&laf);
-    setSize(640, 440);
+    setSize(720, 480);
 
     auto setupKnob = [&](juce::Slider& s, const juce::String& name,
                          const juce::String& param) {
@@ -270,7 +328,7 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, kText);
     titleLabel.setJustificationType(juce::Justification::left);
     addAndMakeVisible(titleLabel);
-    setupLabel(subLabel, "v0.12  -  generative re-composer", 12, kDim);
+    setupLabel(subLabel, "v0.13  -  generative re-composer", 12, kDim);
     subLabel.setJustificationType(juce::Justification::right);
     setupLabel(chaosLabel, "CHAOS", 13, kRed);
     setupLabel(densityLabel, "DENSITY", 11);
@@ -363,82 +421,33 @@ BreakManglerEditor::BreakManglerEditor(BreakManglerProcessor& p)
         gridButtons[choice->getIndex()].setToggleState(
             true, juce::dontSendNotification);
 
+    loadButton.setIcon(IconButton::Icon::Folder);
     loadButton.onClick = [this] { loadFile(); };
     addAndMakeVisible(loadButton);
 
-    // Presets live in the header: factory set plus the user's own.
-    refreshPresetList();
-    addAndMakeVisible(presetBox);
-    presetBox.onChange = [this] {
-        const int id = presetBox.getSelectedId();
-        if (id <= 0) return;
-        const auto factories = BreakManglerProcessor::factoryPresets();
-        if (id <= (int)factories.size()) {
-            proc.applyPreset(factories[id - 1]);
-        } else {
-            proc.loadUserPreset(presetBox.getText());
-        }
-        updateSliceInfo();
-    };
-    presetSave.onClick = [this] {
-        auto* alert = new juce::AlertWindow(
-            "Save preset", "Name this preset:", juce::AlertWindow::NoIcon);
-        alert->addTextEditor("name", "", "Preset name:");
-        alert->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
-        alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-        alert->enterModalState(true, juce::ModalCallbackFunction::create(
-            [this, alert](int result) {
-                if (result == 1) {
-                    const juce::String name =
-                        alert->getTextEditorContents("name");
-                    if (proc.saveUserPreset(name)) {
-                        refreshPresetList();
-                        for (int i = 0; i < presetBox.getNumItems(); ++i) {
-                            if (presetBox.getItemText(i) == name) {
-                                presetBox.setSelectedItemIndex(
-                                    i, juce::dontSendNotification);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }), true); // deletes itself when dismissed
-    };
-    presetDel.onClick = [this] {
-        const int id = presetBox.getSelectedId();
-        const auto factories = BreakManglerProcessor::factoryPresets();
-        if (id > (int)factories.size() &&
-            proc.deleteUserPreset(presetBox.getText()))
-            refreshPresetList();
-    };
-    addAndMakeVisible(presetSave);
-    addAndMakeVisible(presetDel);
-
-    // FIT: load-time fit mode. VARISPEED repitches; S950 keeps the pitch
-    // and fits time with repeated/dropped segments (grit baked in).
-    fitButton.setClickingTogglesState(true);
-    fitButton.setToggleState(false, juce::dontSendNotification);
-    fitButton.onClick = [this] {
-        const bool s950 = fitButton.getToggleState();
+    // RESET: zero the five knobs (the clean sample). The processor handles
+    // both AUTO modes; in MANUAL mode we also move the knobs ourselves.
+    resetButton.setIcon(IconButton::Icon::Reset);
+    resetButton.onClick = [this] {
+        proc.resetKnobsToZero();
         if (proc.autoBypass.load()) {
-            proc.manFitMode.store(s950 ? 1 : 0);
-        } else if (auto* param = proc.apvts.getParameter("fitMode")) {
-            param->setValueNotifyingHost(s950 ? 1.0f : 0.0f);
+            chaosKnob.setValue(0.0, juce::dontSendNotification);
+            densityKnob.setValue(0.0, juce::dontSendNotification);
+            pitchKnob.setValue(0.0, juce::dontSendNotification);
+            degradeKnob.setValue(0.0, juce::dontSendNotification);
+            eraKnob.setValue(0.0, juce::dontSendNotification);
         }
-        fitButton.setButtonText(s950 ? "FIT: S950" : "FIT: VARISPEED");
-        proc.resliceCurrentFile();
-        updateSliceInfo();
+        // HOST mode: the slider attachments move the knobs for us.
     };
-    addAndMakeVisible(fitButton);
+    addAndMakeVisible(resetButton);
 
     playButton.setClickingTogglesState(true);
     playButton.setToggleState(true, juce::dontSendNotification);
     playButton.onClick = [this] {
-        const bool open = playButton.getToggleState();
-        proc.gateOpen.store(open);
-        // optimistic label; the timer refines it (QUEUED while armed)
-        playButton.setButtonText(open ? "QUEUED" : "PLAY");
+        proc.gateOpen.store(playButton.getToggleState());
+        // the timer refines the icon (QUEUED while armed)
     };
+    updatePlayIcon();
     addAndMakeVisible(playButton);
 
     // Automation bypass toggle: HOST = params follow the DAW (incl. any
@@ -487,48 +496,48 @@ void BreakManglerEditor::paint(juce::Graphics& g) {
     g.fillRect(0, 64, getWidth(), 1);
     // faint red baseline under the hero knob area
     g.setColour(juce::Colour(0x22ff3b30));
-    g.fillRect(0, 268, getWidth(), 1);
+    g.fillRect(0, 272, getWidth(), 1);
     // thin group line tying the SNAP buttons together
     g.setColour(juce::Colour(0xff2a2a30));
-    g.drawLine(36.0f, 320.0f, 230.0f, 320.0f, 1.0f);
+    g.drawLine(36.0f, 324.0f, 260.0f, 324.0f, 1.0f);
 }
 
 void BreakManglerEditor::resized() {
-    titleLabel.setBounds(24, 12, 400, 40);
-    subLabel.setBounds(400, 24, 216, 20);
-    chaosKnob.setBounds(30, 96, 140, 140);
-    chaosLabel.setBounds(30, 238, 140, 18);
-    densityKnob.setBounds(184, 104, 78, 78);
-    densityLabel.setBounds(184, 184, 78, 16);
-    pitchKnob.setBounds(272, 104, 78, 78);
-    pitchLabel.setBounds(272, 184, 78, 16);
-    degradeKnob.setBounds(360, 104, 78, 78);
-    degradeLabel.setBounds(360, 184, 78, 16);
-    eraKnob.setBounds(448, 104, 78, 78);
-    eraLabel.setBounds(448, 184, 78, 16);
-    // RATE 2x2, slightly smaller to make room for ERA
-    rateButtons[0].setBounds(540, 104, 38, 38);
-    rateButtons[1].setBounds(582, 104, 38, 38);
-    rateButtons[2].setBounds(540, 146, 38, 38);
-    rateButtons[3].setBounds(582, 146, 38, 38);
-    rateLabel.setBounds(540, 186, 80, 16);
+    // Header: title, version, RESET icon top-right
+    titleLabel.setBounds(24, 12, 420, 40);
+    subLabel.setBounds(452, 24, 196, 20);
+    resetButton.setBounds(672, 14, 32, 32);
+    // Knob row: hero CHAOS, four trims, ERA, RATE grid
+    chaosKnob.setBounds(36, 88, 160, 160);
+    chaosLabel.setBounds(36, 250, 160, 18);
+    densityKnob.setBounds(216, 100, 84, 84);
+    densityLabel.setBounds(216, 186, 84, 16);
+    pitchKnob.setBounds(316, 100, 84, 84);
+    pitchLabel.setBounds(316, 186, 84, 16);
+    degradeKnob.setBounds(416, 100, 84, 84);
+    degradeLabel.setBounds(416, 186, 84, 16);
+    eraKnob.setBounds(516, 100, 84, 84);
+    eraLabel.setBounds(516, 186, 84, 16);
+    rateButtons[0].setBounds(620, 100, 40, 40);
+    rateButtons[1].setBounds(664, 100, 40, 40);
+    rateButtons[2].setBounds(620, 144, 40, 40);
+    rateButtons[3].setBounds(664, 144, 40, 40);
+    rateLabel.setBounds(620, 186, 84, 16);
+    // Mode row: snap group, grid group, load icon + filename
     for (int i = 0; i < 3; ++i)
-        snapButtons[i].setBounds(36 + i * 66, 286, 62, 34);
-    gridButtons[0].setBounds(242, 286, 62, 34);
-    gridButtons[1].setBounds(308, 286, 62, 34);
-    gridLabel.setBounds(242, 322, 128, 14);
-    snapLabel.setBounds(36, 322, 194, 14);
-    loadButton.setBounds(392, 286, 90, 34);
-    fileLabel.setBounds(492, 286, 124, 34);
-    sliceInfoLabel.setBounds(36, 340, 200, 20);
-    transportLabel.setBounds(36, 366, 200, 16);
-    playButton.setBounds(252, 340, 130, 40);
-    waveform.setBounds(392, 336, 224, 88);
-    autoButton.setBounds(252, 392, 130, 30);
-    fitButton.setBounds(36, 392, 140, 28);
-    presetBox.setBounds(400, 42, 150, 20);
-    presetSave.setBounds(554, 42, 36, 20);
-    presetDel.setBounds(594, 42, 36, 20);
+        snapButtons[i].setBounds(36 + i * 76, 288, 72, 36);
+    gridButtons[0].setBounds(280, 288, 72, 36);
+    gridButtons[1].setBounds(356, 288, 72, 36);
+    gridLabel.setBounds(280, 326, 148, 14);
+    snapLabel.setBounds(36, 326, 228, 14);
+    loadButton.setBounds(444, 288, 56, 36);
+    fileLabel.setBounds(508, 288, 188, 36);
+    // Bottom row: readouts, transport icon, waveform screen
+    sliceInfoLabel.setBounds(36, 356, 240, 20);
+    transportLabel.setBounds(36, 380, 240, 16);
+    playButton.setBounds(292, 360, 72, 72);
+    autoButton.setBounds(292, 440, 72, 28);
+    waveform.setBounds(384, 348, 312, 120);
 }
 
 void BreakManglerEditor::loadFile() {
@@ -550,21 +559,6 @@ void BreakManglerEditor::loadFile() {
                                  }
                              }
                          });
-}
-
-void BreakManglerEditor::refreshPresetList() {
-    presetBox.clear(juce::dontSendNotification);
-    const auto factories = BreakManglerProcessor::factoryPresets();
-    int id = 1;
-    for (auto& p : factories)
-        presetBox.addItem(p.name, id++);
-    const auto users = proc.userPresetNames();
-    if (!users.empty()) {
-        presetBox.addSeparator();
-        for (auto& n : users)
-            presetBox.addItem(n, id++);
-    }
-    presetBox.setText("Presets", juce::dontSendNotification);
 }
 
 void BreakManglerEditor::updateSliceInfo() {
@@ -616,6 +610,21 @@ juce::String BreakManglerEditor::mangleWord(float intensity, juce::Random& rng) 
     return juce::String(out);
 }
 
+void BreakManglerEditor::updatePlayIcon() {
+    // gate closed -> play triangle; gate open -> stop square (red playing,
+    // amber while the launch is armed for the next bar)
+    if (!playButton.getToggleState()) {
+        playButton.setIcon(IconButton::Icon::Play);
+        playButton.setIconColour(juce::Colour(0xffc9c9d1));
+    } else if (proc.launchArmed.load()) {
+        playButton.setIcon(IconButton::Icon::Stop);
+        playButton.setIconColour(juce::Colour(0xffffb340));
+    } else {
+        playButton.setIcon(IconButton::Icon::Stop);
+        playButton.setIconColour(juce::Colour(0xffff3b30));
+    }
+}
+
 void BreakManglerEditor::timerCallback() {
     // project restore: the sample (re)slices on the first audio block —
     // if the count or filename changes under us, refresh the readouts
@@ -633,13 +642,8 @@ void BreakManglerEditor::timerCallback() {
     transportLabel.setText(tp ? "HOST PLAYING" : "HOST STOPPED",
                            juce::dontSendNotification);
     transportLabel.setColour(juce::Label::textColourId, tp ? kRed : kDim);
-    // play button reflects the gate/launch state
-    if (!playButton.getToggleState())
-        playButton.setButtonText("PLAY");
-    else if (proc.launchArmed.load())
-        playButton.setButtonText("QUEUED");
-    else
-        playButton.setButtonText("STOP");
+    // play icon reflects the gate/launch state
+    updatePlayIcon();
     // Scramble display: while the engine is actually playing, the word
     // MANGLER mangles itself on every slice hit (harder with more CHAOS)
     // and wrong letters heal back toward the truth between hits.
@@ -693,13 +697,5 @@ void BreakManglerEditor::timerCallback() {
         syncSeg(snapButtons, 3, "pitchSnap");
         syncSeg(rateButtons, 4, "rate");
         syncSeg(gridButtons, 2, "grid");
-    }
-    // FIT toggle follows the fitMode param (or the manual snapshot)
-    {
-        const bool s950 = proc.autoBypass.load()
-            ? proc.manFitMode.load() == 1
-            : proc.effectiveParams().fitMode == 1;
-        fitButton.setToggleState(s950, juce::dontSendNotification);
-        fitButton.setButtonText(s950 ? "FIT: S950" : "FIT: VARISPEED");
     }
 }

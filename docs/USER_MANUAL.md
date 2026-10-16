@@ -60,19 +60,9 @@ leaves them raw and smooth, SEMI snaps them to the nearest semitone, SCALE
 pulls them into the minor pentatonic so pitched slices stay in key. The
 wilder PITCH gets, the more SCALE earns its keep.
 
-**FIT (VARISPEED / S950)** — how the loop is fitted to the host tempo at
-load. VARISPEED resamples smoothly, which also repitches the loop slightly
-to make it fit. S950 keeps the original pitch and fits the time by
-repeating or dropping short segments, with the gritty artifacts baked
-right into the audio. Same loop, two different kinds of authentic.
-
-## Presets
-
-The preset dropdown in the header ships with six factory starting points:
-Faithful, Pitched Break, Gentle Chaos, Beautiful Chaos, Crushed, and
-Vocal Chop. SAVE stores your current knob and button settings under a
-name of your choice; DEL removes a user preset. Your presets live in your
-user data folder and survive updates.
+**RESET** — the circular-arrow icon in the header zeroes all five knobs,
+back to the clean sample. Your DAW project already remembers the knob
+positions, so there is no preset system to manage.
 
 All five knobs are built to be modulated. They are automatable and respond
 to LFOs like any plugin parameter.
