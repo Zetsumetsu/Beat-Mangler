@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(BREAKMANGLER_VST VERSION 0.1.0)
+project(BREAKMANGLER_VST VERSION 1.0.0)
 
 # JUCE source: point JUCE_DIR at a local checkout, or let FetchContent grab it.
 option(BREAKMANGLE_FETCH_JUCE "Fetch JUCE via CMake FetchContent" ON)
@@ -20,7 +20,7 @@ juce_add_plugin(BreakManglerVST
     COMPANY_NAME "Zetsumetsu"
     PLUGIN_NAME "Break Mangler"
     PRODUCT_NAME "Break Mangler"
-    VERSION "0.1.0"
+    VERSION "1.0.0"
     FORMATS VST3
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
