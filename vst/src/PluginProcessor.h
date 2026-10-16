@@ -51,8 +51,8 @@ public:
     // Automation bypass: when engaged, the engine runs on this manual
     // snapshot and host parameter automation is ignored until released.
     std::atomic<bool> autoBypass{false};
-    std::atomic<float> manChaos{0.0f}, manDensity{0.5f}, manPitch{0.5f},
-        manDegrade{0.5f}, manRate{1.0f};
+    std::atomic<float> manChaos{0.0f}, manDensity{0.0f}, manPitch{0.0f},
+        manDegrade{0.0f}, manRate{1.0f};
     std::atomic<int> manGrid{16}, manSnap{1};
     void engageAutoBypass(); // snapshot current params into the manual set
     breakmangler::Params manualParams() const;

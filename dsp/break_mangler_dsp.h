@@ -333,9 +333,9 @@ enum class PitchSnap { Glide, Semitone, Scale }; // Scale = minor pentatonic
 
 struct Params {
     float chaos = 0.0f;      // 0..1 — the macro: order -> beautiful chaos
-    float density = 0.5f;    // stutter/retrigger trim, 0..1
-    float pitchTrim = 0.5f;  // pitch deviation trim, 0..1
-    float degradeTrim = 0.5f;// bitcrush/decimation trim, 0..1
+    float density = 0.0f;    // per-slice chance of stutter/reverse, 0..1
+    float pitchTrim = 0.0f;  // per-slice chance of an interval jump, 0..1
+    float degradeTrim = 0.0f;// per-slice chance of bitcrush, 0..1
     PitchSnap pitchSnap = PitchSnap::Semitone;
     float rate = 1.0f;       // playback rate vs host tempo: 0.25/0.5/1/2
     int gridDiv = 16;        // slices per bar: 16 (sixteenths) or 4 (beats)
@@ -586,31 +586,35 @@ private:
         // launch, so ordered picks always match where the loop should be
         const int64_t rel = absStep_ - launchOffset_;
         const int ordered = (int)(((rel % ns) + ns) % ns);
-        // Unified surprise model: one dice roll per slice. Below the line
-        // the slice plays faithful (right slice, clean); above it, that's
-        // the surprise — reordered and dressed, intensity scaled by chaos.
-        // Low chaos = the groove with the occasional surprise; high chaos
-        // = everything's fair game.
+        // CHAOS owns the slicing: how often a slice is reordered. Character
+        // lives on the trims, each an independent per-slice dice roll, so
+        // character stays playable with the groove intact (chaos at zero).
         int idx = ordered;
-        float semis = 0.0f;
-        bool reverse = false;
-        int repeats = 1, bits = 16, decim = 1;
         if (chaos > 0.0001f) {
-            const float surpriseP = std::pow(chaos, 1.5f); // how often
-            if (rng_.uniform() < surpriseP) {
-                idx = weightedPick();
-                semis = quantizePitch(rng_.bilateral() * 24.0f * chaos *
-                                      (0.25f + 0.75f * params_.pitchTrim));
-                reverse = rng_.uniform() < chaos * 0.5f;
-                const float sp =
-                    chaos * chaos * (0.25f + 0.75f * params_.density);
-                if (rng_.uniform() < sp * 0.7f)
-                    repeats = 2 + (int)(rng_.uniform() * 3.0f); // 2..4
-                const float dg = chaos * (0.25f + 0.75f * params_.degradeTrim);
-                bits = 16 - (int)(dg * 12.0f + 0.5f);
-                if (bits < 4) bits = 4;
-                decim = 1 + (int)(dg * 7.0f + 0.5f);
-            }
+            const float reorderP = std::pow(chaos, 1.5f);
+            if (rng_.uniform() < reorderP) idx = weightedPick();
+        }
+        // PITCH: occasional musical interval jump (fifths/octaves), snapped
+        // to the pitch-snap mode like before.
+        float semis = 0.0f;
+        if (rng_.uniform() < params_.pitchTrim) {
+            static constexpr float intervals[4] = {-12.0f, -7.0f, 7.0f, 12.0f};
+            semis = quantizePitch(intervals[(int)(rng_.uniform() * 4.0f)]);
+        }
+        // DENSITY: rhythmic mangling — stutter or reverse, coin flip.
+        bool reverse = false;
+        int repeats = 1;
+        if (rng_.uniform() < params_.density) {
+            if (rng_.uniform() < 0.5f)
+                repeats = 2 + (int)(rng_.uniform() * 3.0f); // 2..4
+            else
+                reverse = true;
+        }
+        // DEGRADE: fixed musical crush depth, applied per-slice.
+        int bits = 16, decim = 1;
+        if (rng_.uniform() < params_.degradeTrim) {
+            bits = 8;
+            decim = 4;
         }
         startVoice(idx, semis, reverse, repeats, bits, decim);
         lastSlice_ = idx;

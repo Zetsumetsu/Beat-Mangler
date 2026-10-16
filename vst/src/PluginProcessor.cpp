@@ -14,11 +14,11 @@ BreakManglerProcessor::createParameterLayout() {
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "chaos", "Chaos", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "density", "Density", 0.0f, 1.0f, 0.5f));
+        "density", "Density", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "pitchTrim", "Pitch Trim", 0.0f, 1.0f, 0.5f));
+        "pitchTrim", "Pitch Trim", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "degradeTrim", "Degrade Trim", 0.0f, 1.0f, 0.5f));
+        "degradeTrim", "Degrade Trim", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         "rate", "Rate",
         juce::StringArray{"1/4", "1/2", "1", "2"}, 2));
