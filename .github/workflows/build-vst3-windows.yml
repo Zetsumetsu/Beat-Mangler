@@ -26,8 +26,11 @@ jobs:
       - name: Build VST3
         run: cmake --build build --config Release
 
+      - name: Package VST3
+        run: Compress-Archive -Path "build/BreakManglerVST_artefacts/Release/VST3/Break Mangler.vst3" -DestinationPath "$env:GITHUB_WORKSPACE/Break-Mangler-VST3-windows.zip"
+
       - name: Upload VST3 bundle
         uses: actions/upload-artifact@v6
         with:
           name: Break-Mangler-VST3-windows
-          path: build/BreakManglerVST_artefacts/Release/VST3/Break Mangler.vst3
+          path: Break-Mangler-VST3-windows.zip
