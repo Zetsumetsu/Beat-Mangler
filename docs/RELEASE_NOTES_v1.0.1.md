@@ -1,7 +1,9 @@
 # Break Mangler v1.0.1
 
-A generative re-composer for breaks. Load a break, perform the knobs while
+A generative re-composer for breaks. Load a break or any sample, perform the knobs while
 it plays, record the output, chop it up later. That is the whole instrument.
+The intent of the instrument is to make quick work with those vanilla flavored loops that 
+never change and re-compose them so they have variation throughout an arrangement.
 
 ## The panel
 
