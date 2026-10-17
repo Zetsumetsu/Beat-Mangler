@@ -1,8 +1,9 @@
 name: Build VST3 (macOS)
 
 # Builds the Break Mangler VST3 as a universal binary (Intel + Apple Silicon)
-# on a Microsoft-hosted macOS runner and uploads the finished plugin bundle
-# as a downloadable artifact.
+# on a Microsoft-hosted macOS runner, re-signs it ad-hoc (the CI signature
+# does not survive artifact packaging), wraps it in a proper .vst3 bundle
+# via ditto, and uploads the zip as a downloadable artifact.
 # Trigger: any push touching vst/, dsp/, or this workflow, or manual run.
 
 on:
@@ -27,8 +28,16 @@ jobs:
       - name: Build VST3
         run: cmake --build build --config Release
 
+      - name: Re-sign bundle and package
+        run: |
+          BUNDLE="build/BreakManglerVST_artefacts/Release/VST3/Break Mangler.vst3"
+          codesign --force --deep --sign - "$BUNDLE"
+          codesign -v "$BUNDLE" && echo "Signature OK"
+          cd "build/BreakManglerVST_artefacts/Release/VST3"
+          ditto -c -k --sequesterRsrc --keepParent "Break Mangler.vst3" "$GITHUB_WORKSPACE/Break-Mangler-VST3-macos.zip"
+
       - name: Upload VST3 bundle
         uses: actions/upload-artifact@v6
         with:
           name: Break-Mangler-VST3-macos
-          path: build/BreakManglerVST_artefacts/Release/VST3/Break Mangler.vst3
+          path: Break-Mangler-VST3-macos.zip
