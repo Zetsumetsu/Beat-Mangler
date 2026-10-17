@@ -41,3 +41,9 @@ Fixes bar detection failing on some systems: sample loading now uses the
 host tempo tracked on the audio thread instead of querying it from the UI
 thread, so loops are sliced to the bar grid reliably and play back
 faithfully with all knobs at zero.
+
+---
+
+Break Mangler is free. I build these tools for my own music first. If one
+earns a place in yours and you'd like to support more of them, the Sponsor
+button is there if you feel like it.

@@ -12,4 +12,8 @@ Drop in a loop and it slices the audio apart and re-sequences it live, with one 
 
 ## Status
 
-In development and ear-testing. See `DESIGN.md` for the working brief.
+v1.0.1 — released. See `docs/RELEASE_NOTES_v1.0.1.md` and `docs/USER_MANUAL.md`.
+
+## Support
+
+Break Mangler is free. I build these tools for my own music first. If one earns a place in yours and you'd like to support more of them, the Sponsor button is there if you feel like it.
